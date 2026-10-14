@@ -40,8 +40,6 @@ test('doctor explains what is missing', async (t) => {
   assert.match((await bob.run(['doctor'], { extraEnv: { FAKE_GH_UNAUTH: '1', MULTIPLAYER_GITHUB_REPO: 'acme/app' } })).stdout, /⚠️ GitHub CLI: gh is not signed in/);
 
   await team.setPrs({ repo: { nameWithOwner: 'acme/app', viewerPermission: 'WRITE' } });
-  const blocked = await bob.run(['doctor'], { extraEnv: { FAKE_GH_NO_GRAPHQL: '1', MULTIPLAYER_GITHUB_REPO: 'acme/app' } });
-  assert.match(blocked.stdout, /⚠️ PR features: this environment blocks GitHub's GraphQL API/);
 
   await bob.git('config', 'user.name', 'Claude');
   await bob.git('config', 'user.email', 'noreply@anthropic.com');

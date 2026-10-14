@@ -7,6 +7,7 @@ import { identity } from './identity.mjs';
 import { listMembers, readConfig } from './state.mjs';
 import { isCloudSession } from './util.mjs';
 import { defaultBranch } from './workflow.mjs';
+import { parseGithubRepo } from './gh.mjs';
 
 function run(cmd, args, { cwd, env = process.env, timeout = 8_000 } = {}) {
   return new Promise((resolve) => {
@@ -89,9 +90,8 @@ export async function doctor(cwd, { env = process.env } = {}) {
   }
 
   const ghBin = env.MULTIPLAYER_GH || 'gh';
-  // Use GitHub's REST API for the checks here: some environments (Claude Code
-  // cloud sessions) block GraphQL, which most `gh pr …` commands rely on.
-  const nwo = env.MULTIPLAYER_GITHUB_REPO || /github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(url)?.[1];
+  // GitHub's REST API, like the rest of the plugin (works in cloud sessions too).
+  const nwo = env.MULTIPLAYER_GITHUB_REPO || parseGithubRepo(url);
   const installed = await run(ghBin, ['--version'], { cwd: root, env });
   const repo = installed.missing
     ? { missing: true }
@@ -115,15 +115,6 @@ export async function doctor(cwd, { env = process.env } = {}) {
   } else {
     const access = info.permissions?.admin ? 'admin' : info.permissions?.push ? 'write' : 'read';
     add(OK, 'GitHub CLI', `signed in; ${info.full_name} (${access} access)`);
-    const prs = await run(ghBin, ['pr', 'list', '--limit', '1', '--json', 'number'], { cwd: root, env });
-    if (!prs.ok && /graphql/i.test(prs.stderr)) {
-      add(
-        WARN,
-        'PR features',
-        "this environment blocks GitHub's GraphQL API, so PR-overlap warnings, merge checks, release-on-merge, and reverting by PR number are off here",
-        'Everything else works. Use a local session for those, or merge and revert from GitHub directly.',
-      );
-    }
     const base = await defaultBranch(root, remote, {});
     const prot = await run(ghBin, ['api', `repos/${info.full_name}/branches/${base}/protection`], { cwd: root, env });
     if (prot.ok) add(OK, 'Branch protection', `on for ${base}`);

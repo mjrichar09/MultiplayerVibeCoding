@@ -109,7 +109,7 @@ Start with **"Is multiplayer working?"** (`multiplayer doctor`). Common cases:
 - **Nothing about the team appears at session start:** the repo isn't set up yet, the plugin isn't installed or enabled, or you haven't accepted the "trust this folder" prompt.
 - **"multiplayer is paused in this session":** this session commits as a shared identity (e.g. a cloud session). Set `MULTIPLAYER_USER` to your team username in that environment.
 - **"Sharing claims ✗ can't push multiplayer-state":** you need write access to the repo, and some cloud environments only allow pushing a session's own branch.
-- **PR warnings, merge checks, or release-on-merge don't happen:** they need `gh` installed and signed in, and they're off in Claude Code cloud sessions, which block the GitHub API `gh pr` uses. Claims, the summary, and everything else still work.
+- **PR warnings, merge checks, or release-on-merge don't happen:** they need the GitHub CLI (`gh`) installed and signed in (`gh auth login`), and the repo must be on GitHub. Claims, the summary, and everything else work without it.
 - **An agent keeps asking permission for git or multiplayer commands:** the team-setup PR's `.claude/settings.json` pre-approves them; make sure it's merged and the folder is trusted.
 
 ## Configuration

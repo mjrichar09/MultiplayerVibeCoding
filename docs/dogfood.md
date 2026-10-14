@@ -29,7 +29,7 @@ A first trial with a real team, to find friction before anyone else uses multipl
 - [ ] **Cloud session** (Claude Code on the web or mobile), with `MULTIPLAYER_USER` set:
   - does `doctor` show **Sharing claims ✓**?
   - do claims made there appear for teammates?
-  - expected limitation: PR-based features are off there (see Known issues).
+  - do PR-overlap warnings and merge checks work there too?
 - [ ] **Two of your own sessions on different machines at the same time:** do they warn each other?
 - [ ] **Leave a claim untouched for 2+ days:** you're nudged to finish, release, or hand it off.
 
@@ -44,7 +44,6 @@ For anything surprising, log: what you asked, what the agent did, what you expec
 
 ## Known issues going in
 
-- **Cloud sessions can't use the PR-based features.** Claude Code cloud sessions block GitHub's GraphQL API, which `gh pr …` uses, so PR-overlap warnings, merge checks, release-on-merge, and revert-by-PR-number are off there. Claims made in a cloud session are released at the owner's next local session after the PR merges. *Possible fix:* move those calls to GitHub's REST API, which cloud sessions allow.
 - **Unverified:** whether a cloud session is allowed to push the `multiplayer-state` branch. `doctor` reports it ("Sharing claims").
 - **Orca and herdr** were tested with real git worktrees, but not inside those apps.
 - **Branch protection** on private repos needs a paid GitHub plan.

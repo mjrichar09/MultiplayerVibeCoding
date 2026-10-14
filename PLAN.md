@@ -242,7 +242,7 @@ Every feature runs automatically or when asked (§2.7); the slash command is the
 
 ### Phase 6 — Packaging + dogfood
 - `marketplace.json`, README with 2-minute quickstart for the creator and for each joining member.
-- Done: version 0.1.0; strict validation passes; a real install from the marketplace (isolated config) loads and runs hooks and the `bin/` command. README leads with a quickstart, "what you can say", troubleshooting, and configuration. `multiplayer doctor` (plus a skill: "Is multiplayer working?") checks every dependency and prints fixes; it uses GitHub's REST API and flags environments that block GraphQL (found in a cloud session: Claude Code cloud sessions block GraphQL, so `gh pr …`-based features are off there). `docs/dogfood.md` holds the trial checklist, known issues, and the friction log.
+- Done: version 0.1.0; strict validation passes; a real install from the marketplace (isolated config) loads and runs hooks and the `bin/` command. README leads with a quickstart, "what you can say", troubleshooting, and configuration. `multiplayer doctor` (plus a skill: "Is multiplayer working?") checks every dependency and prints fixes; Found in a cloud session: Claude Code cloud sessions block GitHub GraphQL, which `gh pr …` uses, so every PR feature (cache of merged/open PRs with files, PR lookup, checks, protect, revert-by-number) now goes through the REST API via `gh api`, and works there too. `docs/dogfood.md` holds the trial checklist, known issues, and the friction log.
 - Install into a real team project (ideally 3+ people); collect friction notes in `docs/dogfood.md`.
 
 ---

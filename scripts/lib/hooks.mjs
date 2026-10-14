@@ -363,7 +363,7 @@ async function mergeGuard(input, env) {
     return `⚠️ multiplayer: don't merge ${pr}: failing checks: ${failing.join(', ')}. Fix them on the branch, or report the failures to the user, instead of merging.`;
   }
   if (pending.length) {
-    return `multiplayer: checks on ${pr} are still running (${pending.join(', ')}). Wait for them (\`gh pr checks ${target.ref ?? ''} --watch\`) and merge only if they pass, or merge with \`gh pr merge --squash --auto\` so GitHub waits for the required checks.`;
+    return `multiplayer: checks on ${pr} are still running (${pending.join(', ')}). Wait for them to finish and merge only if they pass, or use GitHub's auto-merge (e.g. \`gh pr merge --squash --auto\`) so GitHub waits for the required checks.`;
   }
   return null;
 }

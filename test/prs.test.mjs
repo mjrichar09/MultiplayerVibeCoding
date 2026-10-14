@@ -143,3 +143,22 @@ test('without gh, or with broken gh output, everything still works', async (t) =
     assert.equal((await alice.run(['status'], { extraEnv })).status, 0);
   }
 });
+
+test('GitHub repos are read from https and ssh remotes', async () => {
+  const { parseGithubRepo } = await import('../scripts/lib/gh.mjs');
+  assert.equal(parseGithubRepo('https://github.com/acme/app.git'), 'acme/app');
+  assert.equal(parseGithubRepo('https://github.com/acme/app'), 'acme/app');
+  assert.equal(parseGithubRepo('git@github.com:acme/my.app.git'), 'acme/my.app');
+  assert.equal(parseGithubRepo('https://gitlab.com/acme/app.git'), null);
+  assert.equal(parseGithubRepo('/tmp/remote.git'), null);
+});
+
+test('merging the current branch\'s PR (no number) releases its claim', async (t) => {
+  const team = await setup(['alice']);
+  t.after(team.cleanup);
+  const { alice } = team.members;
+  await ok(alice.run(['claim', '--task', 'Feat', '--paths', 'f/**']));
+  await team.setPrs({ merged: [{ number: 9, headRefName: 'alice/feat' }] });
+  const r = await alice.hook('post-tool-use', { tool_name: 'Bash', tool_input: { command: 'gh pr merge --squash' } });
+  assert.match(r.json.systemMessage, /released "feat" \(PR #9 merged\)/);
+});

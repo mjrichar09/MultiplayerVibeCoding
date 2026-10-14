@@ -28,7 +28,7 @@ test('agents are warned before merging a PR whose checks are not green', async (
   t.after(team.cleanup);
   const { alice } = team.members;
   await team.setPrs({
-    open: [],
+    open: [1, 2, 3, 4].map((number) => ({ number, title: `PR ${number}`, headRefName: `bob/pr-${number}` })),
     merged: [],
     checks: {
       1: [{ name: 'test', bucket: 'fail' }, { name: 'lint', bucket: 'pass' }],

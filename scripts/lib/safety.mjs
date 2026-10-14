@@ -9,6 +9,7 @@ import { claim } from './claims.mjs';
 import { git } from './git.mjs';
 import { slugify } from './identity.mjs';
 import { defaultBranch, dirtyFiles, fetchDefault, revParse } from './workflow.mjs';
+import { githubRepo, prView } from './gh.mjs';
 
 /** Run gh and keep its output and errors (for messages the user can act on). */
 function ghRun(args, { cwd, env = process.env, timeout = 15_000 } = {}) {
@@ -36,10 +37,12 @@ const NEED_GH = 'This needs the GitHub CLI (gh), signed in with access to the re
 export async function protectDefaultBranch(team, { checks } = {}) {
   const { root, env } = team;
   const base = await defaultBranch(root, team.remote, team.config);
-  const repo = await ghRun(['repo', 'view', '--json', 'nameWithOwner,viewerPermission'], { cwd: root, env });
-  if (!repo.json?.nameWithOwner) throw new Error(`${NEED_GH} ${repo.stderr}`.trim());
-  const nwo = repo.json.nameWithOwner;
-  if (repo.json.viewerPermission !== 'ADMIN') {
+  const guess = await githubRepo(root, { env });
+  if (!guess) throw new Error("This repository's remote isn't on GitHub, so there's no branch protection to set.");
+  const repo = await ghRun(['api', `repos/${guess}`], { cwd: root, env });
+  if (!repo.json?.full_name) throw new Error(`${NEED_GH} ${repo.stderr}`.trim());
+  const nwo = repo.json.full_name;
+  if (!repo.json.permissions?.admin) {
     throw new Error(
       `Only a repository admin can turn on branch protection for ${nwo}. Ask an admin to run \`multiplayer protect\`, ` +
         `or in GitHub: Settings → Branches → add a rule for ${base} with "Require status checks to pass before merging".`,
@@ -106,11 +109,12 @@ export async function revertChange(team, ref) {
   let pr = null;
   const number = /^#?(\d+)$/.exec(String(ref ?? '').trim())?.[1];
   if (number) {
-    const view = await ghRun(['pr', 'view', number, '--json', 'number,title,state,mergeCommit'], { cwd: root, env });
-    if (!view.json) throw new Error(`Couldn't look up PR #${number}. ${NEED_GH} Or pass the merge commit's id instead.`);
-    if (view.json.state !== 'MERGED' || !view.json.mergeCommit?.oid) throw new Error(`PR #${number} isn't merged, so there's nothing to revert.`);
-    ({ oid: sha } = view.json.mergeCommit);
-    title = view.json.title;
+    const view = await prView(root, number, { env });
+    if (!view) throw new Error(`Couldn't look up PR #${number}. ${NEED_GH} Or pass the merge commit's id instead.`);
+    if (view.state !== 'MERGED' || !view.mergeCommit?.oid) throw new Error(`PR #${number} isn't merged, so there's nothing to revert.`);
+    ({ oid: sha } = view.mergeCommit);
+    title = view.title;
+    await git(['fetch', '--quiet', remote, sha], { cwd: root }).catch(() => {});
     pr = Number(number);
   } else {
     sha = await revParse(root, ref);

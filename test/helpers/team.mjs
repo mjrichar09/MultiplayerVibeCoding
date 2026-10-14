@@ -43,6 +43,7 @@ export async function makeTeam(names = ['alice', 'bob', 'carol'], { seed = true 
     GIT_TERMINAL_PROMPT: '0',
     MULTIPLAYER_GH: FAKE_GH,
     MULTIPLAYER_GH_TTL_MS: '0',
+    MULTIPLAYER_GITHUB_REPO: 'acme/app',
     FAKE_GH_FIXTURE: path.join(base, 'gh.json'),
   };
   const remote = path.join(base, 'remote.git');
