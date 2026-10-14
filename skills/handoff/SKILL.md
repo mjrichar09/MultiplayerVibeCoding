@@ -1,7 +1,7 @@
 ---
 name: handoff
-description: Write a handoff for one teammate, several, or the whole team summarizing what changed, why, and what's next.
-argument-hint: "[user... | all]"
+description: Pass your work to a named teammate when asked, transferring your claim with notes on what changed, why, and what is next.
+argument-hint: "<user>"
 disable-model-invocation: true
 ---
 
