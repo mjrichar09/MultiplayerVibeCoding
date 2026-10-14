@@ -1,30 +1,37 @@
 // The team briefing shown at session start and by `status` (PLAN §2.6):
-// grouped per teammate, prioritized, and capped regardless of team size.
+// prioritized, grouped per teammate, and capped regardless of team size.
+// Priority: handoffs to me → claims overlapping mine → new decisions →
+// recent notes → other teammates' claims.
 
 import { activeClaims, isStale, mergedPr } from './claims.mjs';
+import { current } from './entries.mjs';
 import { patternsOverlap } from './glob.mjs';
-import { ago } from './util.mjs';
+import { DAY_MS, ago } from './util.mjs';
 
 export const BRIEFING_LINE_CAP = 40;
 const MAX_OVERLAP_LINES = 8;
+const MAX_HANDOFF_BODY_LINES = 8;
+const DECISION_DAYS = 14;
 
 export const STANDING_RULES = [
-  'How to work with your team (multiplayer plugin):',
-  '- Before your first edit on a new task, claim it with the multiplayer:claim skill, using narrow paths. Extend your claim if the work grows.',
-  "- If a teammate's claim covers a file you need to change, tell the user before editing it.",
-  '- Claims release automatically when their PR merges. If you abandon or finish work without a PR, release it with the multiplayer:release skill.',
-  '- Git: commit at natural checkpoints. Work only on your task branch (claiming creates it). Never force-push, rebase, or commit directly to the default branch.',
-  '- When a task is done: push, open a PR, and squash-merge it once approved. The claim releases and the branch cleans up automatically.',
-  '- If told the default branch has new changes to your files, commit and use the multiplayer:update skill at your next checkpoint.',
-  '- Mention each multiplayer action to the user in one line.',
+  'How to work with your team (multiplayer plugin) — mention each multiplayer action to the user in one line:',
+  '- Claim before your first edit on a new task (multiplayer:claim, narrow paths); extend the claim if the work grows. Ask the user before editing files a teammate has claimed.',
+  '- Git: commit at checkpoints; work only on your task branch; never force-push, rebase, or commit to the default branch. If told the default branch changed your files, commit and use multiplayer:update.',
+  '- When done: push, open a PR, squash-merge once approved; the claim and branch clean up automatically. Release by hand (multiplayer:release) only for work that ends without a PR.',
+  '- When a design choice is settled (the user agreed, or an alternative was rejected for a reason), record it with multiplayer:decide.',
+  '- When you learn something teammates need (broken setup, flaky test, changed command, half-done work), post it with multiplayer:note.',
+  '- Only when the user asks to pass work to a teammate, use multiplayer:handoff.',
 ];
 
 const pathList = (paths, max = 3) =>
   `[${paths.slice(0, max).join(', ')}${paths.length > max ? `, +${paths.length - max}` : ''}]`;
 
-function describe(c, ctx) {
+function describeClaim(c, ctx) {
   const flags = [];
-  if (c.supersedes) flags.push(`took over ${c.supersedes.split('--')[0]}'s claim`);
+  if (c.handoff) flags.push(`handed over by ${c.supersedes?.split('--')[0] ?? 'a teammate'}`);
+  else if (c.supersedes) flags.push(`took over ${c.supersedes.split('--')[0]}'s claim`);
+  const pending = ctx.pendingHandoffs?.get(c.id);
+  if (pending) flags.push(`handing off to ${pending.to.join(', ')}`);
   const pr = mergedPr(c, ctx.prCache);
   if (pr) flags.push(`PR #${pr.number} merged${c.keep ? ', kept open' : ''}`);
   if (isStale(c, ctx.config, ctx.at)) flags.push(`STALE, no activity ${ago(c.updated ?? c.started, ctx.at)}`);
@@ -35,18 +42,51 @@ function describe(c, ctx) {
   return `- ${c.slug}: ${c.task} ${pathList(c.paths)} (${where})${flags.length ? ` — ${flags.join('; ')}` : ''}`;
 }
 
+const firstLine = (text) => (text ?? '').split('\n').find((l) => l.trim()) ?? '';
+
+/** Take whole items (each an array of lines) while they fit in `budget`. */
+function fill(items, budget) {
+  const lines = [];
+  let hidden = 0;
+  for (const item of items) {
+    if (lines.length + item.length <= budget) lines.push(...item);
+    else hidden++;
+  }
+  return { lines, hidden };
+}
+
 /**
- * Render the briefing. ctx: { me, members, claims, config, prCache, at,
- * lastSeen, events, cap, rules }. Returns an array of lines.
+ * Render the briefing. ctx: { me, members, claims, decisions, notes, handoffs,
+ * readHandoffs, config, prCache, at, lastSeen, events, cap, rules, filterUser }.
+ * Returns an array of lines.
  */
 export function renderBriefing(ctx) {
   const cap = ctx.cap ?? BRIEFING_LINE_CAP;
+  const full = cap === Infinity;
   const rules = ctx.rules === false ? [] : STANDING_RULES;
+  const at = ctx.at;
   const active = activeClaims(ctx.claims);
+  const handoffs = ctx.handoffs ?? [];
+  const accepted = new Set(ctx.claims.map((c) => c.handoff).filter(Boolean));
+  ctx.pendingHandoffs = new Map(
+    handoffs.filter((h) => h.claim && !accepted.has(h.id) && active.some((c) => c.id === h.claim)).map((h) => [h.claim, h]),
+  );
   const teammates = ctx.members.filter((m) => m.active !== false && m.user !== ctx.me).map((m) => m.user);
 
+  // --- always shown
   const head = [`multiplayer · you are ${ctx.me} · teammates (${teammates.length}): ${teammates.join(', ') || 'none yet'}`];
   for (const e of ctx.events ?? []) head.push(`Just now: ${e}`);
+
+  const read = new Set(ctx.readHandoffs ?? []);
+  const recent = (iso) => at - new Date(iso) < DECISION_DAYS * DAY_MS;
+  const toMe = handoffs.filter((h) => h.to?.includes(ctx.me) && (full ? recent(h.created) : !read.has(h.id)));
+  for (const h of toMe) {
+    head.push(`📨 Handoff from ${h.user} (${ago(h.created, at)}): ${h.title}${h.branch ? ` — branch ${h.branch}` : ''}`);
+    const body = h.body.split('\n').filter((l) => l.trim());
+    const n = full ? body.length : MAX_HANDOFF_BODY_LINES;
+    head.push(...body.slice(0, n).map((l) => `    ${l}`));
+    if (body.length > n) head.push(`    … full handoff: .multiplayer/${h.file}`);
+  }
 
   const mine = active.filter((c) => c.user === ctx.me);
   const others = active.filter((c) => c.user !== ctx.me && (!ctx.filterUser || c.user === ctx.filterUser));
@@ -54,54 +94,93 @@ export function renderBriefing(ctx) {
   const overlapping = others.filter(
     (c) => !mergedPr(c, ctx.prCache) && c.paths.some((p) => myPaths.some((m) => patternsOverlap(m, p))),
   );
-
-  const body = [];
   if (!ctx.filterUser) {
-    body.push(mine.length ? 'Your claims:' : 'You have no active claims.');
-    for (const c of mine) body.push(describe(c, ctx));
+    head.push(mine.length ? 'Your claims:' : 'You have no active claims.');
+    for (const c of mine) head.push(describeClaim(c, ctx));
   }
   if (overlapping.length) {
-    body.push('⚠️ Teammate claims overlapping yours — coordinate before editing shared files:');
-    for (const c of overlapping.slice(0, MAX_OVERLAP_LINES)) body.push(`- ${c.user} · ${describe(c, ctx).slice(2)}`);
-    if (overlapping.length > MAX_OVERLAP_LINES) body.push(`- +${overlapping.length - MAX_OVERLAP_LINES} more overlapping claims`);
+    head.push('⚠️ Teammate claims overlapping yours — coordinate before editing shared files:');
+    const n = full ? overlapping.length : MAX_OVERLAP_LINES;
+    for (const c of overlapping.slice(0, n)) head.push(`- ${c.user} · ${describeClaim(c, ctx).slice(2)}`);
+    if (overlapping.length > n) head.push(`- +${overlapping.length - n} more overlapping claims`);
+  }
+
+  // --- budgeted sections, in priority order
+  let budget = cap - head.length - (rules.length ? rules.length + 1 : 0);
+  // Keep one line so teammates' claims are at least summarized.
+  const shownIds = new Set(overlapping.map((c) => c.id));
+  const reserve = others.some((c) => !shownIds.has(c.id)) ? 1 : 0;
+  budget -= reserve;
+  const sections = [];
+  const more = (n, what) => `+${n} more ${what} — use the multiplayer:status skill to see all.`;
+
+  const isNew = (iso) => (ctx.lastSeen && !full ? new Date(iso) > new Date(ctx.lastSeen) : recent(iso));
+  const decisions = current(ctx.decisions ?? [])
+    .filter((d) => (full || d.user !== ctx.me) && isNew(d.created))
+    .filter((d) => !ctx.filterUser || d.user === ctx.filterUser)
+    .reverse();
+  if (decisions.length && budget > 2) {
+    const { lines, hidden } = fill(
+      decisions.map((d) => [`- ${d.title} — ${d.user}, ${ago(d.created, at)}${d.supersedes ? ' (replaces an earlier decision)' : ''} [${d.id}]`]),
+      budget - 2,
+    );
+    sections.push(full ? `Decisions (last ${DECISION_DAYS} days):` : 'New team decisions (details in .multiplayer/decisions/):', ...lines);
+    if (hidden) sections.push(more(hidden, 'decisions'));
+    budget -= 1 + lines.length + (hidden ? 1 : 0);
+  }
+
+  const noteDays = ctx.config.noteDays ?? 3;
+  const notes = (ctx.notes ?? [])
+    .filter((n) => (full || n.user !== ctx.me) && at - new Date(n.created) < noteDays * DAY_MS)
+    .filter((n) => !ctx.filterUser || n.user === ctx.filterUser)
+    .reverse();
+  if (notes.length && budget > 2) {
+    const { lines, hidden } = fill(
+      notes.map((n) => [`- ${n.user} (${ago(n.created, at)}): ${full ? n.body.replace(/\n+/g, ' ') : firstLine(n.body)}`]),
+      budget - 2,
+    );
+    sections.push('Team notes:', ...lines);
+    if (hidden) sections.push(more(hidden, 'notes'));
+    budget -= 1 + lines.length + (hidden ? 1 : 0);
   }
 
   // Remaining teammate claims, grouped per person, most recently active first.
-  const shown = new Set(overlapping.map((c) => c.id));
+  budget += reserve;
+  const shown = shownIds;
   const byUser = new Map();
   for (const c of others.filter((c) => !shown.has(c.id))) {
     if (!byUser.has(c.user)) byUser.set(c.user, []);
     byUser.get(c.user).push(c);
   }
-  const latest = (cs) => Math.max(...cs.map((c) => new Date(c.updated ?? c.started).getTime()));
+  const time = (c) => new Date(c.updated ?? c.started).getTime();
   const groups = [...byUser.entries()]
-    .map(([user, cs]) => [user, cs.sort((a, b) => latest([b]) - latest([a]))])
-    .sort((a, b) => latest(b[1]) - latest(a[1]));
-
-  const fixed = head.length + body.length + (rules.length ? rules.length + 1 : 0);
-  let budget = cap - fixed - 1; // keep a line for "+N more"
-  const groupLines = [];
-  const hidden = new Map();
-  if (groups.length) groupLines.push(ctx.filterUser ? `${ctx.filterUser}'s claims:` : "Teammates' claims:");
-  budget -= groupLines.length;
-  for (const [user, cs] of groups) {
-    if (budget >= 2) {
-      groupLines.push(`${user} (${cs.length}):`);
-      budget -= 1;
-      for (const c of cs) {
-        if (budget >= 1) {
-          groupLines.push(`  ${describe(c, ctx)}`);
-          budget -= 1;
-        } else hidden.set(user, (hidden.get(user) ?? 0) + 1);
-      }
-    } else hidden.set(user, (hidden.get(user) ?? 0) + cs.length);
+    .map(([user, cs]) => [user, cs.sort((a, b) => time(b) - time(a))])
+    .sort((a, b) => time(b[1][0]) - time(a[1][0]));
+  if (groups.length && budget > 2) {
+    sections.push(ctx.filterUser ? `${ctx.filterUser}'s claims:` : "Teammates' claims:");
+    budget -= 2; // header + room for "+N more"
+    const hidden = new Map();
+    for (const [user, cs] of groups) {
+      if (budget >= 2) {
+        sections.push(`${user} (${cs.length}):`);
+        budget -= 1;
+        for (const c of cs) {
+          if (budget >= 1) {
+            sections.push(`  ${describeClaim(c, ctx)}`);
+            budget -= 1;
+          } else hidden.set(user, (hidden.get(user) ?? 0) + 1);
+        }
+      } else hidden.set(user, (hidden.get(user) ?? 0) + cs.length);
+    }
+    if (hidden.size) {
+      const n = [...hidden.values()].reduce((a, b) => a + b, 0);
+      sections.push(`+${n} more claim${n === 1 ? '' : 's'} from ${[...hidden.keys()].join(', ')} — use the multiplayer:status skill to see all.`);
+    }
+  } else if (groups.length) {
+    sections.push(more(groups.reduce((a, [, cs]) => a + cs.length, 0), 'teammate claims'));
   }
-  if (hidden.size) {
-    const n = [...hidden.values()].reduce((a, b) => a + b, 0);
-    groupLines.push(`+${n} more claim${n === 1 ? '' : 's'} from ${[...hidden.keys()].join(', ')} — use the multiplayer:status skill to see all.`);
-  }
 
-  const lines = [...head, ...body, ...groupLines];
+  const lines = [...head, ...sections];
   if (rules.length) lines.push('', ...rules);
   return lines;
 }

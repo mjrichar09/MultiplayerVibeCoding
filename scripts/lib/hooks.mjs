@@ -7,7 +7,8 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderBriefing } from './briefing.mjs';
-import { activeClaims, covers, isStale, listClaims, mergedPr, release, snapshot, supersededBy } from './claims.mjs';
+import { activeClaims, claim, covers, isStale, listClaims, mergedPr, release, snapshot, supersededBy } from './claims.mjs';
+import { listEntries } from './entries.mjs';
 import { STATE_DIR, currentBranch, git, isAttached, localDir, remoteHasStateBranch, stateDir } from './git.mjs';
 import { prView, prs, readPrCache } from './gh.mjs';
 import { identity } from './identity.mjs';
@@ -17,6 +18,7 @@ import { openTeam } from './team.mjs';
 import { matchesAny } from './glob.mjs';
 import { ago, now } from './util.mjs';
 import {
+  checkoutHandedBranch,
   cleanupMergedBranch,
   currentBranchOrNull,
   defaultBranch,
@@ -93,7 +95,8 @@ export async function sessionStart(input, { env = process.env } = {}) {
   for (const c of claims.filter((c) => c.user === team.me.user)) {
     const taker = supersededBy(claims, c.id);
     const pr = mergedPr(c, prCache);
-    if (taker) toRelease.push({ claim: c, outcome: `taken over by ${taker.user}`, event: `${taker.user} took over your stale claim "${c.slug}".` });
+    if (taker?.handoff) toRelease.push({ claim: c, outcome: `handed off to ${taker.user}`, event: `${taker.user} accepted your handoff of "${c.slug}".` });
+    else if (taker) toRelease.push({ claim: c, outcome: `taken over by ${taker.user}`, event: `${taker.user} took over your stale claim "${c.slug}".` });
     else if (pr && !c.keep) toRelease.push({ claim: c, outcome: `merged in #${pr.number}`, event: `released your claim "${c.slug}" (PR #${pr.number} merged).` });
   }
   if (toRelease.length) {
@@ -109,6 +112,37 @@ export async function sessionStart(input, { env = process.env } = {}) {
     }
   }
 
+  // Accept handoffs addressed to me (PLAN §4): take over the claim and, if
+  // it's safe, switch to the handed-over branch.
+  const handoffs = await listEntries(team.dir, 'handoff');
+  const read = await readLocal(root, 'read.json', { handoffs: [] });
+  const accepted = new Set(claims.map((c) => c.handoff).filter(Boolean));
+  let switchedBranch = false;
+  for (const h of handoffs.filter((h) => h.to?.includes(team.me.user) && !read.handoffs.includes(h.id))) {
+    const target = h.claim && activeClaims(claims).find((c) => c.id === h.claim);
+    if (target && !accepted.has(h.id)) {
+      try {
+        const r = await claim({ ...team, timeout }, {
+          takeover: h.claim,
+          handoff: h,
+          notes: `Handed over by ${h.user}: see .multiplayer/${h.file}`,
+        });
+        notices.push(`accepted ${h.user}'s handoff "${r.claim.slug}".`);
+      } catch (err) {
+        notices.push(`couldn't accept ${h.user}'s handoff: ${err.message}`);
+      }
+    } else if (!h.claim) notices.push(`${h.user} sent you a handoff: ${h.title}.`);
+    if (h.branch && team.config.autoUpdate !== false && !switchedBranch) {
+      const base = await defaultBranch(root, remote, team.config);
+      const r = await checkoutHandedBranch(root, remote, base, h.branch, { timeout });
+      if (r.status === 'switched') {
+        switchedBranch = true;
+        events.push(`switched to ${h.user}'s branch ${h.branch} to continue their work.`);
+      } else events.push(`${h.user}'s work is on branch ${h.branch}; switch to it when ready (not switched: ${r.reason}).`);
+    }
+  }
+  claims = await listClaims(team.dir);
+
   if (team.config.autoUpdate !== false) {
     for (const e of await gitAutopilot(team, toRelease, prCache, timeout)) {
       events.push(e);
@@ -116,11 +150,16 @@ export async function sessionStart(input, { env = process.env } = {}) {
     }
   }
 
+  const [decisions, notes] = await Promise.all([listEntries(team.dir, 'decision'), listEntries(team.dir, 'note')]);
   const lastSeen = await readLocal(root, 'last-seen.json', null);
   const lines = renderBriefing({
     me: team.me.user,
     members: team.members,
     claims,
+    decisions,
+    notes,
+    handoffs,
+    readHandoffs: read.handoffs,
     config: team.config,
     prCache,
     at,
@@ -128,6 +167,8 @@ export async function sessionStart(input, { env = process.env } = {}) {
     events,
   });
   await writeLocal(root, 'last-seen.json', { at: at.toISOString() });
+  const shownToMe = handoffs.filter((h) => h.to?.includes(team.me.user)).map((h) => h.id);
+  await writeLocal(root, 'read.json', { handoffs: [...new Set([...read.handoffs, ...shownToMe])] });
   return output('SessionStart', lines.join('\n'), notices.length ? `multiplayer: ${notices.join(' ')}` : undefined);
 }
 

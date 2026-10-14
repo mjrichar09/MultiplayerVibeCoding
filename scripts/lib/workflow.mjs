@@ -165,3 +165,31 @@ export async function cleanupMergedBranch(root, remote, base, branch, headOid, {
   await git(['branch', '-D', '--quiet', branch], { cwd: root });
   return { status: 'cleaned' };
 }
+
+/**
+ * Switch to a teammate's handed-over branch, but only from a clean default
+ * branch (or detached HEAD), so nothing in progress is disturbed.
+ * Returns { status: 'switched' | 'kept', reason }.
+ */
+export async function checkoutHandedBranch(root, remote, base, branch, { timeout } = {}) {
+  const current = await currentBranchOrNull(root);
+  if (current === branch) return { status: 'switched' };
+  if (current && current !== base) return { status: 'kept', reason: `you're on ${current}` };
+  if ((await dirtyFiles(root)).length) return { status: 'kept', reason: 'uncommitted changes' };
+  if (await operationInProgress(root)) return { status: 'kept', reason: 'operation in progress' };
+  try {
+    await git(['fetch', '--quiet', remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`], {
+      cwd: root,
+      timeout,
+    });
+  } catch {
+    return { status: 'kept', reason: `couldn't fetch ${branch}` };
+  }
+  if (await revParse(root, `refs/heads/${branch}`)) {
+    await git(['switch', '--quiet', branch], { cwd: root });
+    await fastForwardLocal(root, remote, branch);
+  } else {
+    await git(['switch', '--quiet', '--track', '-c', branch, `${remote}/${branch}`], { cwd: root });
+  }
+  return { status: 'switched' };
+}

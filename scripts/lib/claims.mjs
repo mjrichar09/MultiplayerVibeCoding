@@ -78,7 +78,8 @@ export async function findOverlaps(team, paths, { claims, prCache, excludeIds = 
 /**
  * Create or update my claim. Options: task, paths, issue, keep, slug, notes,
  * takeover (id of a stale teammate claim to supersede), noBranch (don't start
- * a task branch, PLAN §2.8).
+ * a task branch, PLAN §2.8), handoff (a handoff addressed to me: supersede its
+ * claim without the staleness check and continue on its branch).
  */
 export async function claim(team, opts) {
   const { dir, me, config } = team;
@@ -92,7 +93,8 @@ export async function claim(team, opts) {
     if (!target) throw new Error(`No claim "${opts.takeover}" to take over.`);
     if (target.user === me.user) throw new Error('That claim is already yours.');
     if (supersededBy(all, target.id)) throw new Error(`"${target.id}" was already taken over.`);
-    if (!isStale(target, config, now(team.env))) {
+    const handedToMe = opts.handoff?.claim === target.id && opts.handoff.to?.includes(me.user);
+    if (!handedToMe && !isStale(target, config, now(team.env))) {
       throw new Error(
         `${target.user}'s claim "${target.slug}" isn't stale yet (stale after ${config.staleClaimDays} days without activity). Ask ${target.user} instead.`,
       );
@@ -115,7 +117,8 @@ export async function claim(team, opts) {
   let branch = existing?.branch;
   let branchCreated = false;
   if (!existing) {
-    if (opts.noBranch || config.autoBranch === false) branch = await currentBranch(team.root);
+    if (opts.handoff?.branch) branch = opts.handoff.branch;
+    else if (opts.noBranch || config.autoBranch === false) branch = await currentBranch(team.root);
     else {
       const baseBranch = await defaultBranch(team.root, team.remote, config);
       const started = await startTaskBranch(team.root, team.remote, baseBranch, `${me.user}/${slug}`);
@@ -134,6 +137,7 @@ export async function claim(team, opts) {
     issue: opts.issue ?? existing?.issue ?? base.issue ?? null,
     keep: opts.keep ?? existing?.keep ?? false,
     supersedes: supersedes ?? existing?.supersedes,
+    handoff: opts.handoff?.id ?? existing?.handoff,
     started: existing?.started ?? at,
     updated: at,
     leftOff: existing?.leftOff,

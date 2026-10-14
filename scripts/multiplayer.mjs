@@ -7,6 +7,7 @@
 import { parseArgs } from 'node:util';
 import { renderBriefing } from './lib/briefing.mjs';
 import { activeClaims, claim, listClaims, release } from './lib/claims.mjs';
+import { decide, handoff, listEntries, note } from './lib/entries.mjs';
 import { isAttached, stateDir } from './lib/git.mjs';
 import { prs } from './lib/gh.mjs';
 import { postToolUse, preToolUse, sessionEnd, sessionStart } from './lib/hooks.mjs';
@@ -30,6 +31,9 @@ const COMMANDS = {
   claim: runClaim,
   release: runRelease,
   status: runStatus,
+  decide: runDecide,
+  note: runNote,
+  handoff: runHandoff,
   update: runUpdate,
   // Background refresh started by the PreToolUse hook: pull state, refresh the
   // PR cache, and fetch the default branch (refs only; never touches files).
@@ -127,12 +131,57 @@ async function runRelease(argv) {
   console.log(`Released ${released.map((c) => `"${c.slug}"`).join(', ')}.`);
 }
 
+// Long text (decision and handoff bodies) comes from --body or stdin.
+async function bodyFrom(values) {
+  if (values.body !== undefined) return values.body;
+  return process.stdin.isTTY ? '' : readStdin();
+}
+
+async function runDecide(argv) {
+  const { values } = parseArgs({
+    args: argv,
+    options: { title: { type: 'string' }, body: { type: 'string' }, supersedes: { type: 'string' } },
+  });
+  const team = await openTeam(process.cwd());
+  const d = await decide(team, { title: values.title, body: await bodyFrom(values), supersedes: values.supersedes });
+  console.log(`Recorded decision "${d.title}" [${d.id}]${d.supersedes ? `, replacing ${d.supersedes}` : ''}.`);
+}
+
+async function runNote(argv) {
+  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { body: { type: 'string' } } });
+  const team = await openTeam(process.cwd());
+  const text = positionals.length ? positionals.join(' ') : await bodyFrom(values);
+  const n = await note(team, { text });
+  console.log(`Posted a note to the team: ${n.title}`);
+}
+
+async function runHandoff(argv) {
+  const { values } = parseArgs({
+    args: argv,
+    options: { to: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, claim: { type: 'string' } },
+  });
+  const team = await openTeam(process.cwd());
+  const r = await handoff(team, { to: values.to, title: values.title, body: await bodyFrom(values), claim: values.claim });
+  const h = r.handoff;
+  console.log(
+    `Handed off "${h.title}" to ${h.to.join(', ')}` +
+      `${r.claim ? `, with your claim "${r.claim.slug}"` : ''}${h.branch ? ` on branch ${h.branch}${r.pushed ? ' (pushed)' : ''}` : ''}. ` +
+      `${h.to.join(', ')}'s next session picks it up; your claim stays active until then.`,
+  );
+}
+
 async function runStatus(argv) {
   const { positionals } = parseArgs({ args: argv, allowPositionals: true });
   const team = await openTeam(process.cwd());
+  const [decisions, notes, handoffs] = await Promise.all(
+    ['decision', 'note', 'handoff'].map((k) => listEntries(team.dir, k)),
+  );
   const lines = renderBriefing({
     me: team.me.user,
     members: team.members,
+    decisions,
+    notes,
+    handoffs,
     claims: await listClaims(team.dir),
     config: team.config,
     prCache: await prs(team.root),
