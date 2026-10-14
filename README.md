@@ -33,9 +33,12 @@ claude plugin install multiplayer@multiplayer-vibe-coding
 
 ## Running several agents at once
 
-- **Separate worktrees** (`git worktree`, [Orca](https://onorca.dev/), …): fully supported. Every worktree shares the team state and keeps its own branch, so each agent works as a normal session.
-- **A lead agent with workers** (subagents, or worktree sessions marked with `multiplayer worker`): the lead claims the task, splits the files, and does all the git; workers only edit and are warned if they try git or claims. Subagents are detected automatically.
-- **Several sessions in one folder**: works, but they share one checkout, so automatic git steps pause until the other sessions end. Separate worktrees are smoother.
+- **Separate worktrees** (`git worktree`, [Orca](https://onorca.dev/), …): fully supported. Every worktree shares the team state and keeps its own branch, so each agent works as a normal session. `multiplayer worktree "<task>" --paths …` sets one up in a single step (new folder and branch from the latest `main`, plus a claim) and prints the command to start the agent there. Handy with terminal tools like [herdr](https://github.com/ogulcancelik/herdr) or tmux, which don't create worktrees themselves.
+- **A lead agent with workers:** the lead claims the task, splits the files, and does all the git; workers only edit and are warned if they try git or claims.
+  - *Subagents* are detected automatically: nothing to do.
+  - *Separate sessions* (Orca worktrees, herdr panes): the lead uses the `delegate` skill on its own. It runs `multiplayer worktree "<part>" --paths … --worker` for each worker (a folder forked from the lead's commit, marked as a worker), then `multiplayer collect <folder>` to fold each worker's changes back into the lead's branch.
+  - A worker that shares the lead's folder (e.g. a herdr pane in the same directory) must be started with `MULTIPLAYER_ROLE=worker claude`.
+- **Several independent sessions in one folder** (e.g. herdr panes all opened in the project): works, but they share one checkout, so automatic git steps pause until the other sessions end. Separate worktrees are smoother.
 
 Whatever the setup, your own agents are warned when they edit the same file as each other.
 

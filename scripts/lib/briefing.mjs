@@ -20,7 +20,7 @@ export const STANDING_RULES = [
   '- When done: push, open a PR, squash-merge once approved; the claim and branch clean up automatically. Release by hand (multiplayer:release) only for work that ends without a PR.',
   '- Record settled design choices with multiplayer:decide (the user agreed, or an alternative was rejected for a reason). Post things teammates need (broken setup, flaky test, changed command) with multiplayer:note.',
   '- If the user says they will be away, are stopping for a while, are stuck, or someone else should continue, offer a handoff to a fitting teammate (e.g. one with related claims). Use multiplayer:handoff only if they agree.',
-  '- Delegating to subagents or parallel agents? Claim the whole task yourself first, give each worker distinct files, and tell workers to leave git and claims to you; you commit, merge, and open the PR.',
+  '- Delegating? Claim the whole task first and give each worker distinct files; workers leave git and claims to you. Subagents need nothing more; for parallel sessions (Orca, herdr, terminals) use multiplayer:delegate.',
 ];
 
 export function workerRules(role) {

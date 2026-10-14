@@ -15,6 +15,7 @@ import { identity } from './lib/identity.mjs';
 import { init, locate } from './lib/init.mjs';
 import { listMembers } from './lib/state.mjs';
 import { activeSessions, setWorker, workerRole } from './lib/sessions.mjs';
+import { collectWorktree, createWorktree } from './lib/parallel.mjs';
 import { openTeam } from './lib/team.mjs';
 import { now, splitList } from './lib/util.mjs';
 import { currentBranchOrNull, defaultBranch, fastForwardLocal, fetchDefault, mergeDefault } from './lib/workflow.mjs';
@@ -38,6 +39,8 @@ const COMMANDS = {
   handoff: runHandoff,
   update: runUpdate,
   worker: runWorker,
+  worktree: runWorktree,
+  collect: runCollect,
   // Background refresh started by the PreToolUse hook: pull state, refresh the
   // PR cache, and fetch the default branch (refs only; never touches files).
   refresh: async () => {
@@ -234,6 +237,58 @@ async function runWorker(argv) {
   console.log(
     `Sessions in ${team.root} are now workers${paths.length ? ` assigned to ${paths.join(', ')}` : ''}: ` +
       `they edit files and leave git, PRs, and claims to the lead.${claimed}`,
+  );
+}
+
+// Start another agent in its own worktree (PLAN §2.9).
+async function runWorktree(argv) {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      task: { type: 'string' },
+      paths: { type: 'string', multiple: true },
+      worker: { type: 'boolean' },
+      dir: { type: 'string' },
+    },
+  });
+  const team = await openTeam(process.cwd());
+  const r = await createWorktree(team, {
+    task: values.task ?? positionals.join(' '),
+    paths: splitList(values.paths ?? []),
+    worker: values.worker,
+    dir: values.dir,
+  });
+  console.log(`Created worktree ${r.dir} on branch ${r.branch}${r.worker ? ' (forked from your current commit)' : ' (from the latest default branch)'}.`);
+  if (r.worker) {
+    console.log(`Its sessions are workers under you${r.leadClaim ? `, covered by your claim "${r.leadClaim.slug}"` : ''}: they edit and leave git to you.`);
+    if (!r.leadClaim) console.log('⚠️ You have no claim on this branch: claim the whole task first so teammates can see it.');
+    if (r.leadDirty.length) console.log(`⚠️ Your uncommitted changes (${r.leadDirty.join(', ')}) are not in the worker's copy; commit before starting more workers.`);
+    console.log(`When the worker is done: node <plugin>/scripts/multiplayer.mjs collect ${JSON.stringify(r.dir)}`);
+  } else if (r.claim) {
+    console.log(`Claimed "${r.claim.slug}" [${r.claim.paths.join(', ')}] for ${r.claim.user} on ${r.claim.branch}.`);
+  }
+  console.log(`Start the agent with: ${r.startCommand}`);
+}
+
+// Fold a worker worktree's changes back into the lead's branch.
+async function runCollect(argv) {
+  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { message: { type: 'string' } } });
+  if (!positionals[0]) throw new Error('Which worktree? Pass its folder or branch.');
+  const team = await openTeam(process.cwd());
+  const r = await collectWorktree(team, positionals[0], { message: values.message });
+  if (r.status === 'conflict') {
+    console.log(
+      `Merging ${r.branch} has conflicts in: ${r.files.join(', ')}. Resolve them, \`git add\` the files, and \`git commit --no-edit\`; ` +
+        `then run collect again to remove the worktree.`,
+    );
+    process.exitCode = 2;
+    return;
+  }
+  console.log(
+    r.status === 'merged'
+      ? `Merged ${r.commits} commit${r.commits === 1 ? '' : 's'} from ${r.branch} and removed worktree ${r.dir}.`
+      : `Nothing new on ${r.branch}; removed worktree ${r.dir}.`,
   );
 }
 

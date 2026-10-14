@@ -243,3 +243,77 @@ test('a quiet claim suggests finishing, releasing, or handing off; newcomers get
   assert.match(context(await alice.hook('session-start')), /STALE, no activity for 4d: finish it, release it, or offer a handoff/);
   assert.match(context(await alice.hook('session-start')), /offer a handoff to a fitting teammate/);
 });
+
+// ------------------------------------------------- worktree + collect
+
+test('worktree starts an independent agent on its own branch from the latest main', async (t) => {
+  const team = await setup();
+  t.after(team.cleanup);
+  const { alice, bob } = team.members;
+  await landOnMain(bob, 'lib/b.ts', 'b\n', 'Bob lands b.ts');
+
+  const r = await ok(alice.run(['worktree', 'Payments API', '--paths', 'src/api/**']));
+  const dir = path.join(team.base, 'alice-payments-api');
+  assert.match(r.stdout, new RegExp(`Created worktree ${dir} on branch alice/payments-api \\(from the latest default branch\\)`));
+  assert.match(r.stdout, /Claimed "payments-api" \[src\/api\/\*\*\] for alice on alice\/payments-api/);
+  assert.match(r.stdout, /Start the agent with: cd ".*alice-payments-api" && claude/);
+  const w = at(team, dir);
+  assert.match(await w.git('log', '--format=%s'), /Bob lands b.ts/);
+  assert.match(context(await w.hook('session-start', { session_id: 'x' })), /How to work with your team/); // not a worker
+});
+
+test('a lead starts workers in worktrees and collects their work into its branch', async (t) => {
+  const team = await setup(['alice']);
+  t.after(team.cleanup);
+  const { alice } = team.members;
+  await ok(alice.run(['claim', '--task', 'Big feature', '--paths', 'src/core/**']));
+  await mkdir(path.join(alice.cwd, 'src', 'core'), { recursive: true });
+  await writeFile(path.join(alice.cwd, 'src', 'core', 'base.ts'), 'base\n');
+  await alice.git('add', '.');
+  await alice.git('commit', '-q', '-m', 'Lead groundwork');
+
+  const r = await ok(alice.run(['worktree', 'API part', '--paths', 'src/api/**', '--worker']));
+  assert.match(r.stdout, /forked from your current commit/);
+  assert.match(r.stdout, /workers under you, covered by your claim "big-feature"/);
+  const dir = path.join(team.base, 'alice-api-part');
+  const w = at(team, dir);
+  assert.ok(existsSync(path.join(dir, 'src', 'core', 'base.ts'))); // has the lead's commit
+  assert.match((await ok(alice.run(['status']))).stdout, /big-feature: Big feature \[src\/core\/\*\*, src\/api\/\*\*\]/);
+  assert.match(context(await w.hook('session-start', { session_id: 'w' })), /worker agent under alice's lead session/);
+  const nested = await w.run(['worktree', 'Sub part', '--worker']);
+  assert.match(nested.stderr, /Workers do not start other agents/);
+
+  // The worker edits without committing; the lead collects.
+  await mkdir(path.join(dir, 'src', 'api'), { recursive: true });
+  await writeFile(path.join(dir, 'src', 'api', 'pay.ts'), 'pay\n');
+  const c = await ok(alice.run(['collect', dir]));
+  assert.match(c.stdout, /Merged 1 commit from alice\/api-part and removed worktree/);
+  assert.ok(existsSync(path.join(alice.cwd, 'src', 'api', 'pay.ts')));
+  assert.equal(existsSync(dir), false);
+  assert.equal(await alice.git('branch', '--list', 'alice/api-part'), '');
+  assert.equal(await alice.git('branch', '--show-current'), 'alice/big-feature');
+});
+
+test('collect leaves conflicts for the lead, then finishes on the second run', async (t) => {
+  const team = await setup(['alice']);
+  t.after(team.cleanup);
+  const { alice } = team.members;
+  await ok(alice.run(['claim', '--task', 'Readme work', '--paths', 'README.md']));
+  await ok(alice.run(['worktree', 'Readme part', '--paths', 'README.md', '--worker']));
+  const dir = path.join(team.base, 'alice-readme-part');
+  await writeFile(path.join(dir, 'README.md'), '# worker\n');
+  await writeFile(path.join(alice.cwd, 'README.md'), '# lead\n');
+  await alice.git('commit', '-qam', 'Lead edits readme');
+
+  const c = await alice.run(['collect', 'alice/readme-part']);
+  assert.equal(c.status, 2);
+  assert.match(c.stdout, /conflicts in: README.md.*run collect again/);
+  assert.ok(existsSync(dir));
+
+  await writeFile(path.join(alice.cwd, 'README.md'), '# lead + worker\n');
+  await alice.git('add', 'README.md');
+  await alice.git('commit', '-q', '--no-edit');
+  const again = await ok(alice.run(['collect', 'alice/readme-part']));
+  assert.match(again.stdout, /Nothing new on alice\/readme-part; removed worktree/);
+  assert.equal(existsSync(dir), false);
+});
