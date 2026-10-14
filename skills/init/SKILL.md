@@ -17,6 +17,7 @@ Set up or join this repository's multiplayer team.
    - `.claude/settings.json`: offers the plugin to everyone who opens the repo, pre-approves the multiplayer skills and everyday git/PR commands so agents aren't stuck on permission prompts, and blocks force-pushes, rebases, pushes to the default branch, and reading `.env` files.
    - `.github/PULL_REQUEST_TEMPLATE.md` if the repo has no PR template.
    Then push the branch and open a PR; tell the user the team gets these files when it merges.
-5. Report the result in one line, e.g. `multiplayer: created the team as alice (1 member) and opened the team-setup PR`.
+5. **Offer branch protection** (only with the user's OK, since it changes GitHub repository settings): explain that agents merge PRs once checks pass, and that turning on protection makes GitHub itself refuse merges with failing checks. If they agree, run `multiplayer protect`. It needs a repo admin and CI that has run at least once; if it reports what's missing, pass that on in plain language.
+6. Report the result in one line, e.g. `multiplayer: created the team as alice (1 member) and opened the team-setup PR`.
 
 Teammates don't need to run anything: once the plugin is installed, their next session joins the team automatically.

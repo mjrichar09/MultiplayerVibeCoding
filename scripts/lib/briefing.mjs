@@ -18,7 +18,7 @@ export const STANDING_RULES = [
   'How to work with your team (multiplayer plugin) — mention each multiplayer action to the user in one line:',
   '- Claim before your first edit on a new task (multiplayer:claim, narrow paths); extend the claim if the work grows. Ask the user before editing files a teammate has claimed.',
   '- Git: commit at checkpoints; work only on your task branch; never force-push, rebase, or commit to the default branch. If told the default branch changed your files, commit and use multiplayer:update.',
-  '- When done: push, open a PR, squash-merge once approved; the claim and branch clean up automatically. Release by hand (multiplayer:release) only for work that ends without a PR.',
+  '- When done: push and open a PR. Merge (squash) only after all its checks pass (`gh pr checks <n>`; or `gh pr merge --squash --auto` to let GitHub wait); if checks fail, fix them or tell the user. The claim and branch clean up automatically. To undo a merged PR, use multiplayer:revert.',
   '- Record settled design choices with multiplayer:decide (the user agreed, or an alternative was rejected for a reason). Post things teammates need (broken setup, flaky test, changed command) with multiplayer:note.',
   '- If the user says they will be away, are stopping for a while, are stuck, or someone else should continue, offer a handoff to a fitting teammate (e.g. one with related claims). Use multiplayer:handoff only if they agree.',
   '- Delegating? Claim the whole task first and give each worker distinct files; workers leave git and claims to you. Subagents need nothing more; for parallel sessions (Orca, herdr, terminals) use multiplayer:delegate.',

@@ -2,7 +2,7 @@
 // Stand-in for the GitHub CLI. Serves PRs from the JSON file named by
 // FAKE_GH_FIXTURE: { "merged": [...], "open": [...] }. Exits 1 if the fixture
 // is missing, like an unauthenticated gh.
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 if (process.env.FAKE_GH_GARBAGE) {
   process.stdout.write('this is not json');
@@ -23,10 +23,39 @@ const all = [
 if (args[0] === 'pr' && args[1] === 'list') {
   const state = args[args.indexOf('--state') + 1];
   process.stdout.write(JSON.stringify(state === 'merged' ? fixture.merged ?? [] : fixture.open ?? []));
-} else if (args[0] === 'api' && args[1] === 'user') {
-  const login = process.env.FAKE_GH_USER ?? fixture.user;
-  if (!login) process.exit(1);
-  process.stdout.write(JSON.stringify({ login }));
+} else if (args[0] === 'pr' && args[1] === 'checks') {
+  const ref = args[2] && !args[2].startsWith('-') ? args[2] : 'current';
+  const checks = fixture.checks?.[ref];
+  if (!checks) {
+    process.stderr.write(`no checks reported on the '${ref}' branch\n`);
+    process.exit(1);
+  }
+  process.stdout.write(JSON.stringify(checks));
+  if (checks.some((c) => c.bucket === 'fail')) process.exit(1);
+  if (checks.some((c) => c.bucket === 'pending')) process.exit(8);
+} else if (args[0] === 'repo' && args[1] === 'view') {
+  if (!fixture.repo) process.exit(1);
+  process.stdout.write(JSON.stringify(fixture.repo));
+} else if (args[0] === 'api') {
+  const put = args.includes('PUT');
+  const url = args.find((a) => a.startsWith('repos/'));
+  if (put) {
+    if (fixture.protectError) {
+      process.stderr.write(fixture.protectError);
+      process.exit(1);
+    }
+    const input = readFileSync(args[args.indexOf('--input') + 1], 'utf8');
+    writeFileSync(`${process.env.FAKE_GH_FIXTURE}.protection.json`, JSON.stringify({ url, body: JSON.parse(input) }));
+    process.stdout.write('{}');
+  } else if (url?.includes('/check-runs')) {
+    process.stdout.write(JSON.stringify({ check_runs: (fixture.mainChecks ?? []).map((name) => ({ name })) }));
+  } else if (url?.endsWith('/status')) {
+    process.stdout.write(JSON.stringify({ statuses: (fixture.mainStatuses ?? []).map((context) => ({ context })) }));
+  } else if (url === undefined && args[1] === 'user') {
+    const login = process.env.FAKE_GH_USER ?? fixture.user;
+    if (!login) process.exit(1);
+    process.stdout.write(JSON.stringify({ login }));
+  } else process.exit(1);
 } else if (args[0] === 'pr' && args[1] === 'view') {
   const ref = args[2] && !args[2].startsWith('-') ? args[2] : null;
   const pr = all.find((p) => String(p.number) === ref || p.headRefName === ref || p.url === ref);

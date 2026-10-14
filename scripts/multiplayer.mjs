@@ -17,6 +17,7 @@ import { listMembers } from './lib/state.mjs';
 import { activeSessions, setWorker, workerRole } from './lib/sessions.mjs';
 import { collectWorktree, createWorktree } from './lib/parallel.mjs';
 import { scaffold, syncClaudeMd } from './lib/docs.mjs';
+import { protectDefaultBranch, revertChange } from './lib/safety.mjs';
 import { openTeam } from './lib/team.mjs';
 import { now, splitList } from './lib/util.mjs';
 import { currentBranchOrNull, defaultBranch, fastForwardLocal, fetchDefault, mergeDefault } from './lib/workflow.mjs';
@@ -44,6 +45,8 @@ const COMMANDS = {
   collect: runCollect,
   sync: runSync,
   scaffold: runScaffold,
+  protect: runProtect,
+  revert: runRevert,
   // Background refresh started by the PreToolUse hook: pull state, refresh the
   // PR cache, and fetch the default branch (refs only; never touches files).
   refresh: async () => {
@@ -328,6 +331,39 @@ async function runScaffold() {
   if (r.files.some((f) => /created|added|merged/.test(f.action))) {
     console.log(`Committed on ${r.branch}${r.branchCreated ? ' (a new branch)' : ''}. Push it and open a PR so the team gets these files.`);
   } else console.log('Nothing to add: this repo already has the team files.');
+}
+
+// Turn on GitHub branch protection: checks must pass before merging into the default branch.
+async function runProtect(argv) {
+  const { values } = parseArgs({ args: argv, options: { checks: { type: 'string', multiple: true } } });
+  const team = await openTeam(process.cwd(), { sync: false });
+  const r = await protectDefaultBranch(team, { checks: splitList(values.checks ?? []) });
+  console.log(
+    `Protected ${r.branch} on ${r.repo}: merging now requires these checks to pass: ${r.checks.join(', ')}. ` +
+      'Force-pushes and deleting the branch are blocked too.',
+  );
+}
+
+// Undo a merged PR (or commit) through a normal revert PR.
+async function runRevert(argv) {
+  const { positionals } = parseArgs({ args: argv, allowPositionals: true });
+  if (!positionals[0]) throw new Error('What should be reverted? Pass a PR number (e.g. 42) or a commit id.');
+  const team = await openTeam(process.cwd());
+  const r = await revertChange(team, positionals[0]);
+  const what = r.pr ? `PR #${r.pr} ("${r.title}")` : `${r.sha.slice(0, 10)} ("${r.title}")`;
+  if (r.status === 'conflict') {
+    console.log(
+      `Reverting ${what} on ${r.branch} conflicts with later changes in: ${r.files.join(', ')}. ` +
+        'Later work built on it: keep that work where you can, ask the user when it depends on what is being removed, ' +
+        'then `git add` the files and `git revert --continue`.',
+    );
+    process.exitCode = 2;
+    return;
+  }
+  console.log(
+    `Reverted ${what} on new branch ${r.branch} (claimed ${r.files.length} file${r.files.length === 1 ? '' : 's'}). ` +
+      `Next: run the tests, push, open a PR titled "Revert ${r.pr ? `#${r.pr}` : r.sha.slice(0, 7)}: ${r.title}", and post a team note.`,
+  );
 }
 
 // Bring the current branch up to date with the default branch by merging

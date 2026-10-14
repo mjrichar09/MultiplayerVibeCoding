@@ -22,7 +22,7 @@ import {
   workerRole,
 } from './sessions.mjs';
 import { STATE_DIR, currentBranch, git, isAttached, localDir, remoteHasStateBranch, stateDir } from './git.mjs';
-import { prView, prs, readPrCache } from './gh.mjs';
+import { prChecks, prView, prs, readPrCache } from './gh.mjs';
 import { identity } from './identity.mjs';
 import { InitError, init, locate } from './init.mjs';
 import { readConfig } from './state.mjs';
@@ -327,8 +327,41 @@ async function workerCommandCheck(input, env) {
   );
 }
 
+/**
+ * Before an agent merges a PR: look up its checks and warn unless they all
+ * passed (PLAN §2.8 guard rails). GitHub branch protection is the hard stop;
+ * this makes the agent wait or report instead of merging red. Never blocks.
+ */
+async function mergeGuard(input, env) {
+  const target = mergeTarget(input);
+  if (!target) return null;
+  if (/--auto\b/.test(input.tool_input?.command ?? '')) return null; // GitHub waits for required checks itself
+  const located = await locateOrNull(input, env);
+  if (!located) return null;
+  const checks = await prChecks(located.root, target.ref, { repo: target.repo, env });
+  if (checks === null) return null; // gh unavailable: nothing to check against
+  const names = (bucket) => checks.filter((c) => bucket.includes(c.bucket)).map((c) => c.name);
+  const failing = names(['fail', 'cancel']);
+  const pending = names(['pending']);
+  const pr = target.ref ? `PR #${target.ref}` : 'this PR';
+  if (!checks.length) {
+    return `multiplayer: ${pr} has no checks (no CI ran on it). Merge only if you ran the project's tests yourself and they passed; otherwise tell the user instead of merging.`;
+  }
+  if (failing.length) {
+    return `⚠️ multiplayer: don't merge ${pr}: failing checks: ${failing.join(', ')}. Fix them on the branch, or report the failures to the user, instead of merging.`;
+  }
+  if (pending.length) {
+    return `multiplayer: checks on ${pr} are still running (${pending.join(', ')}). Wait for them (\`gh pr checks ${target.ref ?? ''} --watch\`) and merge only if they pass, or merge with \`gh pr merge --squash --auto\` so GitHub waits for the required checks.`;
+  }
+  return null;
+}
+
 export async function preToolUse(input, { env = process.env } = {}) {
-  if (input.tool_name === 'Bash' || input.tool_name === 'Skill') return workerCommandCheck(input, env);
+  if (input.tool_name === 'Bash' || input.tool_name === 'Skill' || /merge_pull_request$/.test(input.tool_name ?? '')) {
+    const messages = (await Promise.all([workerCommandCheck(input, env), mergeGuard(input, env)])).filter(Boolean);
+    const text = messages.map((m) => (typeof m === 'string' ? m : m.hookSpecificOutput.additionalContext));
+    return text.length ? output('PreToolUse', text.join('\n')) : null;
+  }
   const target = input.tool_input?.file_path || input.tool_input?.notebook_path;
   if (!target) return null;
   const located = await locateOrNull(input, env);

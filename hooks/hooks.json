@@ -24,12 +24,12 @@
         ]
       },
       {
-        "matcher": "Bash|Skill",
+        "matcher": "Bash|Skill|mcp__.*merge_pull_request",
         "hooks": [
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/multiplayer.mjs hook pre-tool-use",
-            "timeout": 2
+            "timeout": 6
           }
         ]
       }

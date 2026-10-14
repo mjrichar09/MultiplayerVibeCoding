@@ -64,6 +64,27 @@ export async function githubLogin(root, { env = process.env } = {}) {
   return typeof me?.login === 'string' ? me.login : null;
 }
 
+/**
+ * A PR's checks: [{ name, bucket }] where bucket is pass | fail | pending |
+ * skipping | cancel; [] if it has none; null if gh is unavailable. `gh pr
+ * checks` exits non-zero for failing or pending checks but still prints JSON.
+ */
+export function prChecks(root, ref, { repo, env = process.env, timeout = 4_000 } = {}) {
+  const args = ['pr', 'checks', ...(ref ? [String(ref)] : []), '--json', 'name,bucket'];
+  if (repo) args.push('--repo', repo);
+  return new Promise((resolve) => {
+    execFile(env.MULTIPLAYER_GH || 'gh', args, { cwd: root, env, timeout }, (err, stdout, stderr) => {
+      try {
+        const parsed = JSON.parse(stdout);
+        if (Array.isArray(parsed)) return resolve(parsed);
+      } catch {
+        // fall through
+      }
+      resolve(/no checks reported/i.test(stderr ?? '') ? [] : null);
+    });
+  });
+}
+
 /** One PR's current state, bypassing the cache. `ref` is a number, URL, or branch. */
 export function prView(root, ref, { repo, env = process.env } = {}) {
   const args = ['pr', 'view', ...(ref ? [String(ref)] : []), '--json', 'number,state,headRefName,headRefOid,url'];

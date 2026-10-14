@@ -22,6 +22,7 @@ It ships **multiplayer**, a Claude Code plugin that adds an async coordination l
 - **CLAUDE.md keeps up.** Its "Team decisions" section lists every current decision; when it falls behind, the agent updates it as its own commit. Conflicts in that section are settled automatically.
 - **Decisions and notes spread on their own.** When a design choice is settled, the agent records a short decision record; when it learns something the team needs (a broken environment, a flaky test), it posts a note. Teammates see both at their next session start.
 - **Handoffs when you ask.** "Bob is taking over checkout" makes the agent commit, push the branch, and write a handoff. Bob's next session accepts the claim, switches to the branch if he's free, and starts with the notes.
+- **Merging is guarded.** Agents merge only after a PR's checks pass. They're warned if checks are failing, still running, or missing. `multiplayer protect` turns on GitHub branch protection, so failing PRs can't merge at all. To undo a merged PR, ask for it ("revert #42"): the agent opens a revert PR and tells the team. Later work is kept.
 - **Git runs itself.** Each task gets its own branch from the latest `main`. Branches are kept current by merging `main` in (never rebasing), automatically at session start when that's safe. Conflicts are resolved by the agent, which asks you only when both sides changed the same logic. After a PR merges, you're switched back to an updated `main` and the old branch is deleted. Nothing automatic ever runs if it could lose work.
 
 ## Install
