@@ -8,7 +8,7 @@ import { parseArgs } from 'node:util';
 import { renderBriefing } from './lib/briefing.mjs';
 import { activeClaims, claim, listClaims, release } from './lib/claims.mjs';
 import { decide, handoff, listEntries, note } from './lib/entries.mjs';
-import { isAttached, stateDir } from './lib/git.mjs';
+import { git, isAttached, stateDir } from './lib/git.mjs';
 import { prs } from './lib/gh.mjs';
 import { postToolUse, preToolUse, sessionEnd, sessionStart, subagentStop } from './lib/hooks.mjs';
 import { identity } from './lib/identity.mjs';
@@ -16,6 +16,7 @@ import { init, locate } from './lib/init.mjs';
 import { listMembers } from './lib/state.mjs';
 import { activeSessions, setWorker, workerRole } from './lib/sessions.mjs';
 import { collectWorktree, createWorktree } from './lib/parallel.mjs';
+import { scaffold, syncClaudeMd } from './lib/docs.mjs';
 import { openTeam } from './lib/team.mjs';
 import { now, splitList } from './lib/util.mjs';
 import { currentBranchOrNull, defaultBranch, fastForwardLocal, fetchDefault, mergeDefault } from './lib/workflow.mjs';
@@ -41,6 +42,8 @@ const COMMANDS = {
   worker: runWorker,
   worktree: runWorktree,
   collect: runCollect,
+  sync: runSync,
+  scaffold: runScaffold,
   // Background refresh started by the PreToolUse hook: pull state, refresh the
   // PR cache, and fetch the default branch (refs only; never touches files).
   refresh: async () => {
@@ -268,7 +271,7 @@ async function runWorktree(argv) {
     console.log(`Its sessions are workers under you${r.leadClaim ? `, covered by your claim "${r.leadClaim.slug}"` : ''}: they edit and leave git to you.`);
     if (!r.leadClaim) console.log('⚠️ You have no claim on this branch: claim the whole task first so teammates can see it.');
     if (r.leadDirty.length) console.log(`⚠️ Your uncommitted changes (${r.leadDirty.join(', ')}) are not in the worker's copy; commit before starting more workers.`);
-    console.log(`When the worker is done: node <plugin>/scripts/multiplayer.mjs collect ${JSON.stringify(r.dir)}`);
+    console.log(`When the worker is done: multiplayer collect ${JSON.stringify(r.dir)}`);
   } else if (r.claim) {
     console.log(`Claimed "${r.claim.slug}" [${r.claim.paths.join(', ')}] for ${r.claim.user} on ${r.claim.branch}.`);
   }
@@ -296,6 +299,37 @@ async function runCollect(argv) {
   );
 }
 
+// Keep CLAUDE.md's "Team decisions" section in step with recorded decisions.
+async function runSync(argv) {
+  const { values } = parseArgs({ args: argv, options: { resolve: { type: 'boolean' } } });
+  const team = await openTeam(process.cwd());
+  if (await workerRole(team.root)) throw new Error('This is a worker session: your lead keeps CLAUDE.md in sync.');
+  const r = await syncClaudeMd(team, { resolve: values.resolve });
+  if (r.status === 'resolved') {
+    console.log('Rewrote the Team decisions section of CLAUDE.md and staged it. Finish the merge with `git commit --no-edit`.');
+  } else if (r.status === 'up-to-date') {
+    console.log('CLAUDE.md already lists every current team decision.');
+  } else {
+    const parts = [];
+    if (r.added.length) parts.push(`added ${r.added.map((t) => `"${t}"`).join(', ')}`);
+    if (r.removed.length) parts.push(`removed ${r.removed.length} replaced decision${r.removed.length === 1 ? '' : 's'}`);
+    console.log(
+      `Synced CLAUDE.md (${parts.join('; ') || 'added the Team decisions section'}) and committed it on ${r.branch}` +
+        `${r.branchCreated ? ' (a new branch: push it and open a PR)' : ''}.`,
+    );
+  }
+}
+
+// Add the shared team files (CLAUDE.md, .claude/settings.json, PR template).
+async function runScaffold() {
+  const team = await openTeam(process.cwd());
+  const r = await scaffold(team);
+  for (const f of r.files) console.log(`${f.file}: ${f.action}`);
+  if (r.files.some((f) => /created|added|merged/.test(f.action))) {
+    console.log(`Committed on ${r.branch}${r.branchCreated ? ' (a new branch)' : ''}. Push it and open a PR so the team gets these files.`);
+  } else console.log('Nothing to add: this repo already has the team files.');
+}
+
 // Bring the current branch up to date with the default branch by merging
 // (PLAN §2.8). Conflicts are left in place for the agent to resolve.
 async function runUpdate() {
@@ -309,7 +343,17 @@ async function runUpdate() {
     console.log(ff === 'skipped' ? `Could not fast-forward ${base} (local commits or uncommitted changes in the way).` : `${base} is up to date.`);
     return;
   }
-  const r = await mergeDefault(root, remote, base, { onConflict: 'leave' });
+  let r = await mergeDefault(root, remote, base, { onConflict: 'leave' });
+  if (r.status === 'conflict' && r.files.length === 1 && r.files[0] === 'CLAUDE.md' && isAttached(root)) {
+    // Both sides updated the Team decisions list: regenerate it instead of asking.
+    try {
+      await syncClaudeMd(await openTeam(root), { resolve: true });
+      await git(['commit', '--quiet', '--no-edit'], { cwd: root });
+      r = { status: 'merged', behind: r.behind };
+    } catch {
+      // Conflicts outside the decisions block: leave them for the agent.
+    }
+  }
   const messages = {
     merged: `Merged ${r.behind} new commit${r.behind === 1 ? '' : 's'} from ${base} into ${branch}.`,
     'up-to-date': `${branch} already has everything from ${base}.`,

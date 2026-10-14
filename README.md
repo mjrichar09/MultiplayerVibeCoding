@@ -4,16 +4,22 @@ This structures a repo so that a team can work together on a project seamlessly 
 
 It ships **multiplayer**, a Claude Code plugin that adds an async coordination layer for a team of any size working on one repo: each person's Claude knows what teammates have claimed, what's been decided, and what was handed off — without a server.
 
-> Status: Phases 0–4 of [`PLAN.md`](PLAN.md) are done: team setup and automatic joining, claims and release-on-merge, the session-start briefing, overlap warnings from claims *and* teammates' open PRs, the git autopilot, decisions, notes, handoffs, and parallel-agent support. Next: CLAUDE.md sync and project templates (Phase 5).
+> Status: Phases 0–5 of [`PLAN.md`](PLAN.md) are done. Next: packaging polish and a trial run with a real team (Phase 6).
 
 ## How it works
 
-- **One person sets it up** by asking Claude to set up multiplayer (`/multiplayer:init`). This creates a `multiplayer-state` branch on the repo's remote.
+- **One person sets it up** by asking Claude to "set up multiplayer". This creates a `multiplayer-state` branch on the repo's remote and opens a team-setup PR with:
+  - a team `CLAUDE.md` (Claude fills in the project, stack, and commands from the repo),
+  - shared `.claude/settings.json` that offers the plugin to everyone who opens the repo, pre-approves the multiplayer commands and everyday git/PR commands, and blocks force-pushes, rebases, pushes to `main`, and reading `.env` files,
+  - a PR template.
+
+  Existing files are extended, never overwritten. The settings apply once each person accepts Claude Code's "trust this folder" prompt for the repo.
 - **Everyone else joins automatically** the first time they start a Claude Code session in the repo.
 - **Agents claim work** before their first edit, with narrow file paths. Every session starts with a briefing of who has claimed what.
 - **Editing a file a teammate has claimed, or that a teammate's open PR changes,** makes Claude stop and check with you. It never blocks. (PR checks use the `gh` CLI when it's installed and signed in; without it, claim-based warnings still work.)
 - **Claims release themselves** when their PR merges, whether an agent merged it or someone clicked Merge on GitHub.
 - **Stale claims** (no activity for 3 days, configurable) can be taken over; the owner is told.
+- **CLAUDE.md keeps up.** Its "Team decisions" section lists every current decision; when it falls behind, the agent updates it as its own commit. Conflicts in that section are settled automatically.
 - **Decisions and notes spread on their own.** When a design choice is settled, the agent records a short decision record; when it learns something the team needs (a broken environment, a flaky test), it posts a note. Teammates see both at their next session start.
 - **Handoffs when you ask.** "Bob is taking over checkout" makes the agent commit, push the branch, and write a handoff. Bob's next session accepts the claim, switches to the branch if he's free, and starts with the notes.
 - **Git runs itself.** Each task gets its own branch from the latest `main`. Branches are kept current by merging `main` in (never rebasing), automatically at session start when that's safe. Conflicts are resolved by the agent, which asks you only when both sides changed the same logic. After a PR merges, you're switched back to an updated `main` and the old branch is deleted. Nothing automatic ever runs if it could lose work.

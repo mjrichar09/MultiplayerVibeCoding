@@ -2,7 +2,7 @@
 name: decide
 description: Record a team decision (a short ADR) so every teammate's Claude learns it. Use proactively when a design or architecture choice is settled in conversation — the user agreed to an approach, or an alternative was rejected for a stated reason — and it affects how others should work. Also use when the user asks to record a decision.
 argument-hint: "<summary>"
-allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/multiplayer.mjs *)
+allowed-tools: Bash(multiplayer *)
 ---
 
 Record a decision for the whole team. Summary (if given): $ARGUMENTS
@@ -13,7 +13,7 @@ Record a decision for the whole team. Summary (if given): $ARGUMENTS
    - **Body:** four short sections — `## Context` (the problem), `## Decision` (what we'll do), `## Consequences` (what changes for everyone, including what to avoid), `## Alternatives` (what was rejected and why).
 3. Record it, passing the body on stdin:
    ```
-   node ${CLAUDE_PLUGIN_ROOT}/scripts/multiplayer.mjs decide --title "<title>" [--supersedes <id>] <<'EOF'
+   multiplayer decide --title "<title>" [--supersedes <id>] <<'EOF'
    ## Context
    ...
    EOF

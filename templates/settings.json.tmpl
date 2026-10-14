@@ -1,0 +1,40 @@
+{
+  "extraKnownMarketplaces": {
+    "{{marketplace}}": {
+      "source": { "source": "github", "repo": "{{marketplaceRepo}}" }
+    }
+  },
+  "enabledPlugins": {
+    "multiplayer@{{marketplace}}": true
+  },
+  "permissions": {
+    "allow": [
+      {{skillRules}},
+      "Bash(multiplayer *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr merge *)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * +*)",
+      "Bash(git push * {{defaultBranch}})",
+      "Bash(git push * HEAD:{{defaultBranch}})",
+      "Bash(git rebase *)",
+      "Bash(git reset --hard*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(!.env.example)"
+    ]
+  }
+}

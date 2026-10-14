@@ -2,7 +2,7 @@
 name: handoff
 description: Pass your current work to a named teammate, transferring your claim and branch with notes on what changed, why, and what's next. Use only when the user asks to hand work to someone (e.g. "Bob is taking over checkout").
 argument-hint: "<teammate>"
-allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/multiplayer.mjs *) Bash(git add *) Bash(git commit *) Bash(git status*) Bash(git diff*) Bash(git log*)
+allowed-tools: Bash(multiplayer *) Bash(git add *) Bash(git commit *) Bash(git status*) Bash(git diff*) Bash(git log*)
 ---
 
 Hand work to a teammate. Request: $ARGUMENTS
@@ -17,7 +17,7 @@ Hand work to a teammate. Request: $ARGUMENTS
    - `## Gotchas` — anything surprising: setup, flaky tests, traps
 4. Run:
    ```
-   node ${CLAUDE_PLUGIN_ROOT}/scripts/multiplayer.mjs handoff --to <teammate> [--claim <slug>] <<'EOF'
+   multiplayer handoff --to <teammate> [--claim <slug>] <<'EOF'
    ## What changed
    ...
    EOF
