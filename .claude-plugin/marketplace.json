@@ -4,7 +4,7 @@
   "owner": { "name": "mjrichar09" },
   "plugins": [
     {
-      "name": "crew",
+      "name": "multiplayer",
       "source": "./",
       "description": "Async coordination for teams of any size running Claude Code on one repo."
     }

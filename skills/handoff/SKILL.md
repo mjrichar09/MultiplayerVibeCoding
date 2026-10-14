@@ -5,4 +5,4 @@ argument-hint: "[user... | all]"
 disable-model-invocation: true
 ---
 
-**Not implemented yet** — this skill arrives in Phase 3 of `PLAN.md`. Tell the user that `/crew:handoff` isn't available yet and stop.
+**Not implemented yet** — this skill arrives in Phase 3 of `PLAN.md`. Tell the user that `/multiplayer:handoff` isn't available yet and stop.

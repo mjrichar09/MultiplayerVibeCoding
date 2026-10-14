@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// crew CLI entry. Usage: crew.mjs <subcommand> [args...]
+// multiplayer CLI entry. Usage: multiplayer.mjs <subcommand> [args...]
 //
 // Hook subcommands (`hook <event>`) must fail open: any error exits 0 with no
 // output so a broken plugin never breaks a Claude Code session.
@@ -14,7 +14,7 @@ const HOOKS = {
 const COMMANDS = {
   hook: runHook,
   version: async () => {
-    console.log('crew 0.0.1');
+    console.log('multiplayer 0.0.1');
   },
 };
 
@@ -43,7 +43,7 @@ async function main(argv) {
   const [cmd, ...rest] = argv;
   const fn = COMMANDS[cmd];
   if (!fn) {
-    console.error(`crew: unknown command "${cmd ?? ''}". Commands: ${Object.keys(COMMANDS).join(', ')}`);
+    console.error(`multiplayer: unknown command "${cmd ?? ''}". Commands: ${Object.keys(COMMANDS).join(', ')}`);
     process.exitCode = 1;
     return;
   }

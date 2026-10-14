@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/crew.mjs hook session-start",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/multiplayer.mjs hook session-start",
             "timeout": 5
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/crew.mjs hook pre-tool-use",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/multiplayer.mjs hook pre-tool-use",
             "timeout": 2
           }
         ]

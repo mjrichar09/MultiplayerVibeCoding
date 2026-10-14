@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const CLI = fileURLToPath(new URL('../scripts/crew.mjs', import.meta.url));
+const CLI = fileURLToPath(new URL('../scripts/multiplayer.mjs', import.meta.url));
 const run = (args, input) => spawnSync(process.execPath, [CLI, ...args], { input, encoding: 'utf8' });
 
 for (const event of ['session-start', 'pre-tool-use']) {
