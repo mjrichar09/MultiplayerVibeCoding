@@ -46,7 +46,7 @@ export async function prs(root, { env = process.env, refresh = false } = {}) {
   const cached = await readPrCache(root);
   if (!refresh && cached && Date.now() - cached.fetchedAt < ttl) return cached;
 
-  const fields = 'number,headRefName,author,mergedAt,url';
+  const fields = 'number,headRefName,headRefOid,author,mergedAt,url';
   const [merged, open] = await Promise.all([
     gh(['pr', 'list', '--state', 'merged', '--limit', '50', '--json', fields], { cwd: root, env }),
     gh(['pr', 'list', '--state', 'open', '--limit', '100', '--json', fields], { cwd: root, env }),
@@ -59,7 +59,7 @@ export async function prs(root, { env = process.env, refresh = false } = {}) {
 
 /** One PR's current state, bypassing the cache. `ref` is a number, URL, or branch. */
 export function prView(root, ref, { repo, env = process.env } = {}) {
-  const args = ['pr', 'view', ...(ref ? [String(ref)] : []), '--json', 'number,state,headRefName,url'];
+  const args = ['pr', 'view', ...(ref ? [String(ref)] : []), '--json', 'number,state,headRefName,headRefOid,url'];
   if (repo) args.push('--repo', repo);
   return gh(args, { cwd: root, env });
 }

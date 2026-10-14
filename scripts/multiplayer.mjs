@@ -15,6 +15,7 @@ import { init, locate } from './lib/init.mjs';
 import { listMembers } from './lib/state.mjs';
 import { openTeam } from './lib/team.mjs';
 import { now, splitList } from './lib/util.mjs';
+import { currentBranchOrNull, defaultBranch, fastForwardLocal, fetchDefault, mergeDefault } from './lib/workflow.mjs';
 
 const HOOKS = {
   'session-start': sessionStart,
@@ -29,10 +30,16 @@ const COMMANDS = {
   claim: runClaim,
   release: runRelease,
   status: runStatus,
-  // Background refresh started by the PreToolUse hook: pull state, refresh the PR cache.
+  update: runUpdate,
+  // Background refresh started by the PreToolUse hook: pull state, refresh the
+  // PR cache, and fetch the default branch (refs only; never touches files).
   refresh: async () => {
     const team = await openTeam(process.cwd(), { timeout: 10_000 });
-    await prs(team.root, { refresh: true });
+    const base = await defaultBranch(team.root, team.remote, team.config);
+    await Promise.all([
+      prs(team.root, { refresh: true }),
+      fetchDefault(team.root, team.remote, base, { timeout: 10_000 }).catch(() => {}),
+    ]);
   },
   whoami: async () => {
     const { root } = await locate(process.cwd());
@@ -71,6 +78,7 @@ async function runClaim(argv) {
       takeover: { type: 'string' },
       keep: { type: 'boolean' },
       'no-keep': { type: 'boolean' },
+      'no-branch': { type: 'boolean' },
     },
   });
   const team = await openTeam(process.cwd());
@@ -82,6 +90,7 @@ async function runClaim(argv) {
     notes: values.notes,
     takeover: values.takeover,
     keep: values.keep ? true : values['no-keep'] ? false : undefined,
+    noBranch: values['no-branch'],
   });
   const c = result.claim;
   const verb = { created: 'Claimed', updated: 'Updated claim', 'took-over': 'Took over' }[result.status];
@@ -89,6 +98,7 @@ async function runClaim(argv) {
     `${verb} "${c.slug}" for ${c.user}: ${c.task} [${c.paths.join(', ')}] on ${c.branch || '(no branch)'}` +
       `${c.keep ? ' (kept open after merge)' : ''}${c.supersedes ? ` (supersedes ${c.supersedes})` : ''}.`,
   );
+  if (result.branchCreated) console.log(`Started branch ${c.branch} from the latest default branch; work and commit there.`);
   for (const o of result.overlaps) {
     console.log(`⚠️ Overlaps ${o.claim.user}'s claim "${o.claim.slug}" (${o.claim.task}) on ${o.paths.join(', ')}.`);
   }
@@ -132,6 +142,34 @@ async function runStatus(argv) {
     rules: false,
   });
   console.log(lines.join('\n'));
+}
+
+// Bring the current branch up to date with the default branch by merging
+// (PLAN §2.8). Conflicts are left in place for the agent to resolve.
+async function runUpdate() {
+  const { root, remote } = await locate(process.cwd());
+  const config = isAttached(root) ? (await openTeam(root, { sync: false })).config : {};
+  const base = await defaultBranch(root, remote, config);
+  await fetchDefault(root, remote, base);
+  const ff = await fastForwardLocal(root, remote, base);
+  const branch = await currentBranchOrNull(root);
+  if (branch === base) {
+    console.log(ff === 'skipped' ? `Could not fast-forward ${base} (local commits or uncommitted changes in the way).` : `${base} is up to date.`);
+    return;
+  }
+  const r = await mergeDefault(root, remote, base, { onConflict: 'leave' });
+  const messages = {
+    merged: `Merged ${r.behind} new commit${r.behind === 1 ? '' : 's'} from ${base} into ${branch}.`,
+    'up-to-date': `${branch} already has everything from ${base}.`,
+    dirty: `Not updated: commit your changes first (${(r.files ?? []).join(', ')}), then run update again.`,
+    skipped: `Not updated: ${r.reason}.`,
+    conflict:
+      `Merging ${base} into ${branch} has conflicts in: ${(r.files ?? []).join(', ')}.\n` +
+      'The merge is in progress. Resolve each file (keep both sides\' intent; ask the user only when both sides changed the same logic), ' +
+      'then `git add` the files and `git commit --no-edit`. To back out instead: `git merge --abort`.',
+  };
+  console.log(messages[r.status]);
+  if (r.status === 'conflict') process.exitCode = 2;
 }
 
 async function readStdin() {

@@ -13,6 +13,9 @@ export const STANDING_RULES = [
   '- Before your first edit on a new task, claim it with the multiplayer:claim skill, using narrow paths. Extend your claim if the work grows.',
   "- If a teammate's claim covers a file you need to change, tell the user before editing it.",
   '- Claims release automatically when their PR merges. If you abandon or finish work without a PR, release it with the multiplayer:release skill.',
+  '- Git: commit at natural checkpoints. Work only on your task branch (claiming creates it). Never force-push, rebase, or commit directly to the default branch.',
+  '- When a task is done: push, open a PR, and squash-merge it once approved. The claim releases and the branch cleans up automatically.',
+  '- If told the default branch has new changes to your files, commit and use the multiplayer:update skill at your next checkpoint.',
   '- Mention each multiplayer action to the user in one line.',
 ];
 

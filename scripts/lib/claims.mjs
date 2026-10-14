@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { commitAndPush, currentBranch, trackedFiles } from './git.mjs';
+import { defaultBranch, startTaskBranch } from './workflow.mjs';
 import { matchesAny, normalizePattern, patternsOverlap } from './glob.mjs';
 import { slugify } from './identity.mjs';
 import { formatFrontmatter, parseFrontmatter } from './state.mjs';
@@ -76,7 +77,8 @@ export async function findOverlaps(team, paths, { claims, prCache, excludeIds = 
 
 /**
  * Create or update my claim. Options: task, paths, issue, keep, slug, notes,
- * takeover (id of a stale teammate claim to supersede).
+ * takeover (id of a stale teammate claim to supersede), noBranch (don't start
+ * a task branch, PLAN §2.8).
  */
 export async function claim(team, opts) {
   const { dir, me, config } = team;
@@ -109,13 +111,26 @@ export async function claim(team, opts) {
   const paths = [...new Set([...(existing?.paths ?? []), ...(base.paths ?? []), ...(opts.paths ?? [])].map(normalizePattern))];
   if (paths.length === 0) throw new Error('A claim needs at least one path or glob (e.g. src/checkout/**).');
 
+  // A new task gets its own branch from the latest default branch (PLAN §2.8).
+  let branch = existing?.branch;
+  let branchCreated = false;
+  if (!existing) {
+    if (opts.noBranch || config.autoBranch === false) branch = await currentBranch(team.root);
+    else {
+      const baseBranch = await defaultBranch(team.root, team.remote, config);
+      const started = await startTaskBranch(team.root, team.remote, baseBranch, `${me.user}/${slug}`);
+      ({ branch } = started);
+      branchCreated = started.created;
+    }
+  }
+
   const next = {
     id,
     user: me.user,
     slug,
     task: task ?? existing?.task ?? slug,
     paths,
-    branch: existing?.branch ?? opts.branch ?? (await currentBranch(team.root)),
+    branch,
     issue: opts.issue ?? existing?.issue ?? base.issue ?? null,
     keep: opts.keep ?? existing?.keep ?? false,
     supersedes: supersedes ?? existing?.supersedes,
@@ -129,7 +144,7 @@ export async function claim(team, opts) {
   await commitAndPush(dir, team.remote, [claimRel(id)], `multiplayer: ${me.user} ${verb} ${slug}`);
 
   const overlaps = await findOverlaps(team, paths, { excludeIds: supersedes ? [supersedes] : [] });
-  return { claim: next, status: existing ? 'updated' : supersedes ? 'took-over' : 'created', overlaps };
+  return { claim: next, status: existing ? 'updated' : supersedes ? 'took-over' : 'created', overlaps, branchCreated };
 }
 
 /** Release my claims by id, logging an outcome line per claim to history/<me>.md. One commit. */

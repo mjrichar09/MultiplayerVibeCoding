@@ -14,7 +14,17 @@ import { identity } from './identity.mjs';
 import { InitError, init, locate } from './init.mjs';
 import { readConfig } from './state.mjs';
 import { openTeam } from './team.mjs';
+import { matchesAny } from './glob.mjs';
 import { ago, now } from './util.mjs';
+import {
+  cleanupMergedBranch,
+  currentBranchOrNull,
+  defaultBranch,
+  fastForwardLocal,
+  fetchDefault,
+  incomingFiles,
+  mergeDefault,
+} from './workflow.mjs';
 
 // Network operations in hooks get a hard per-call timeout so a slow remote
 // can't stall the session.
@@ -99,6 +109,13 @@ export async function sessionStart(input, { env = process.env } = {}) {
     }
   }
 
+  if (team.config.autoUpdate !== false) {
+    for (const e of await gitAutopilot(team, toRelease, prCache, timeout)) {
+      events.push(e);
+      notices.push(e);
+    }
+  }
+
   const lastSeen = await readLocal(root, 'last-seen.json', null);
   const lines = renderBriefing({
     me: team.me.user,
@@ -112,6 +129,48 @@ export async function sessionStart(input, { env = process.env } = {}) {
   });
   await writeLocal(root, 'last-seen.json', { at: at.toISOString() });
   return output('SessionStart', lines.join('\n'), notices.length ? `multiplayer: ${notices.join(' ')}` : undefined);
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * Session-start git upkeep (PLAN §2.8), before the agent has read anything:
+ * clean up a merged task branch, fast-forward the default branch, and merge it
+ * into the current task branch when that can't lose work. Returns event lines.
+ */
+async function gitAutopilot(team, released, prCache, timeout) {
+  const { root, remote, config } = team;
+  const base = await defaultBranch(root, remote, config);
+  await fetchDefault(root, remote, base, { timeout }).catch(() => {});
+  const events = [];
+
+  const branch = await currentBranchOrNull(root);
+  const merged = released.map((r) => r.claim).find((c) => c.branch && c.branch === branch);
+  if (merged) {
+    const pr = prCache?.merged?.find((p) => p.headRefName === branch);
+    const r = await cleanupMergedBranch(root, remote, base, branch, pr?.headRefOid, { timeout });
+    if (r.status === 'cleaned') events.push(`switched to ${base} and deleted the merged branch ${branch}.`);
+    else events.push(`kept branch ${branch} after its PR merged: ${r.reason}.`);
+  }
+
+  await fastForwardLocal(root, remote, base);
+  const r = await mergeDefault(root, remote, base, { onConflict: 'abort' });
+  const current = await currentBranchOrNull(root);
+  if (r.status === 'merged') events.push(`merged the latest ${base} into ${current} (${plural(r.behind, 'new commit')}).`);
+  else if (r.status === 'conflict') {
+    events.push(
+      `${base} has ${plural(r.behind, 'new commit')} that conflict with ${current} in ${r.files.join(', ')}. ` +
+        'Nothing was changed. Commit your work, then use the multiplayer:update skill and resolve the conflicts.',
+    );
+  } else if (r.status === 'dirty') {
+    events.push(
+      `${current} is ${plural(r.behind, 'commit')} behind ${base} and wasn't updated because of uncommitted changes. ` +
+        'At your next checkpoint, commit and use the multiplayer:update skill.',
+    );
+  }
+  const incoming = await incomingFiles(root, remote, base);
+  await writeLocal(root, 'incoming-seen.json', { tip: incoming.tip });
+  return events;
 }
 
 // ----------------------------------------------------------------- PreToolUse
@@ -195,6 +254,27 @@ export async function preToolUse(input, { env = process.env } = {}) {
     seen.nudged.push(areaOf(rel));
   }
 
+  // New commits on the default branch touching files I've claimed (fetched by
+  // the background refresh). Once per new tip.
+  const mineActive = active.filter((c) => c.user === me.user);
+  if (mineActive.length) {
+    const base = await defaultBranch(root, located.remote, config);
+    const branch = await currentBranchOrNull(root);
+    if (branch && branch !== base) {
+      const incoming = await incomingFiles(root, located.remote, base);
+      const lastTip = (await readLocal(root, 'incoming-seen.json', {})).tip;
+      const hits = incoming.files.filter((f) => mineActive.some((c) => matchesAny(c.paths, f)));
+      if (incoming.tip && incoming.tip !== lastTip && hits.length) {
+        const shown = hits.slice(0, 3).join(', ') + (hits.length > 3 ? `, +${hits.length - 3} more` : '');
+        messages.push(
+          `multiplayer: ${base} has new changes to files in your claims (${shown}). ` +
+            'At your next checkpoint, commit your work and use the multiplayer:update skill to merge them in.',
+        );
+        await writeLocal(root, 'incoming-seen.json', { tip: incoming.tip });
+      }
+    }
+  }
+
   if (!messages.length) return null;
   await writeLocal(root, seenFile, seen);
   return output('PreToolUse', messages.join('\n'));
@@ -248,10 +328,21 @@ export async function postToolUse(input, { env = process.env } = {}) {
   const mine = activeClaims(await listClaims(team.dir)).filter(
     (c) => c.user === team.me.user && c.branch === pr.headRefName && !c.keep,
   );
-  if (!mine.length) return null;
-  await release({ ...team, timeout: HOOK_NET_TIMEOUT_MS }, mine.map((c) => ({ claim: c, outcome: `merged in #${pr.number}` })));
-  const names = mine.map((c) => `"${c.slug}"`).join(', ');
-  const msg = `multiplayer: released ${names} (PR #${pr.number} merged)`;
+  const parts = [];
+  if (mine.length) {
+    await release({ ...team, timeout: HOOK_NET_TIMEOUT_MS }, mine.map((c) => ({ claim: c, outcome: `merged in #${pr.number}` })));
+    parts.push(`released ${mine.map((c) => `"${c.slug}"`).join(', ')} (PR #${pr.number} merged)`);
+  }
+  if (team.config.autoUpdate !== false) {
+    const base = await defaultBranch(root, team.remote, team.config);
+    const r = await cleanupMergedBranch(root, team.remote, base, pr.headRefName, pr.headRefOid, {
+      timeout: HOOK_NET_TIMEOUT_MS,
+    });
+    if (r.status === 'cleaned') parts.push(`switched to ${base} and deleted the merged branch ${pr.headRefName}`);
+    else if (r.reason !== 'not checked out') parts.push(`kept branch ${pr.headRefName} (${r.reason})`);
+  }
+  if (!parts.length) return null;
+  const msg = `multiplayer: ${parts.join('; ')}`;
   return output('PostToolUse', `${msg}. Tell the user in one line.`, msg);
 }
 

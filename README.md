@@ -4,7 +4,7 @@ This structures a repo so that a team can work together on a project seamlessly 
 
 It ships **multiplayer**, a Claude Code plugin that adds an async coordination layer for a team of any size working on one repo: each person's Claude knows what teammates have claimed, what's been decided, and what was handed off — without a server.
 
-> Status: Phases 0–2 of [`PLAN.md`](PLAN.md) are done: team setup, automatic joining, claims, release-on-merge, the session-start briefing, and overlap warnings on edit. Decisions, notes, and handoffs come next.
+> Status: Phases 0–2.5 of [`PLAN.md`](PLAN.md) are done: team setup, automatic joining, claims, release-on-merge, the session-start briefing, overlap warnings on edit, and the git autopilot. Decisions, notes, and handoffs come next.
 
 ## How it works
 
@@ -14,6 +14,7 @@ It ships **multiplayer**, a Claude Code plugin that adds an async coordination l
 - **Editing a teammate's claimed file** makes Claude stop and check with you. It never blocks.
 - **Claims release themselves** when their PR merges, whether an agent merged it or someone clicked Merge on GitHub.
 - **Stale claims** (no activity for 3 days, configurable) can be taken over; the owner is told.
+- **Git runs itself.** Each task gets its own branch from the latest `main`. Branches are kept current by merging `main` in (never rebasing), automatically at session start when that's safe. Conflicts are resolved by the agent, which asks you only when both sides changed the same logic. After a PR merges, you're switched back to an updated `main` and the old branch is deleted. Nothing automatic ever runs if it could lose work.
 
 ## Install
 

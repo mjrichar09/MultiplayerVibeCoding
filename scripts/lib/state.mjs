@@ -12,6 +12,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   version: 1,
   staleClaimDays: 3,
   noteDays: 3,
+  autoBranch: true,
+  autoUpdate: true,
 });
 
 export function formatFrontmatter(data, body = '') {

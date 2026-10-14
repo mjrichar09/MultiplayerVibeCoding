@@ -102,6 +102,20 @@ Automatic actions announce themselves in one line to the user (e.g. `multiplayer
 | sync | automatic | Briefing flags decisions not yet reflected in `CLAUDE.md`; agent updates `CLAUDE.md` as its own commit (`multiplayer: sync CLAUDE.md`). |
 | snapshot | automatic | SessionEnd hook writes "where I left off" (branch, last commits, uncommitted files) into my own active claims — no model needed. Commit locally; push best-effort, else on next SessionStart. |
 
+### 2.8 Git autopilot — painless git for inexperienced users
+People talk about tasks, never branches. Agents run one fixed, merge-only workflow; anything that could lose work stops and hands over to the agent (which explains and asks).
+
+1. **Start:** claiming a task while on the default branch creates a task branch `<user>/<slug>` from the latest remote default branch (uncommitted changes come along). One task → one branch → one PR. Claiming on an existing feature branch keeps that branch. `--no-branch` / config `autoBranch: false` opt out.
+2. **Work:** the agent commits at natural checkpoints (standing rule), keeping the tree clean so updates are safe.
+3. **Stay current — merge, never rebase:**
+   - **SessionStart** (before the agent has read anything): fetch the default branch; fast-forward local default when that loses nothing; if on a task branch with no uncommitted tracked changes, merge the default branch in. On conflict, abort (nothing changes) and tell the agent.
+   - **Mid-session:** the background refresh fetches the default branch; when new commits there touch files in my claims, PreToolUse tells the agent (once per new tip) to commit and run the `update` skill at its next checkpoint.
+   - **`update` skill:** fetch + merge; on conflict it leaves the merge in progress, lists the files, and the agent resolves them, asking the user only when both sides changed the same logic.
+4. **Finish:** the agent pushes, opens a PR, and merges with squash when approved. After the merge: the claim releases (§2.7), and if the merged branch is checked out with no uncommitted changes, the plugin switches to the default branch, fast-forwards it, and deletes the local task branch (only if its tip is the PR's head, so nothing unpushed is lost).
+5. **Guard rails:** never force-push, rebase shared branches, or commit directly to the default branch — standing rules now, enforced by deny rules in the Phase 5 settings template. Automatic steps only run when they can't lose work.
+
+Config: `defaultBranch` (auto-detected), `autoBranch` (default true), `autoUpdate` (default true).
+
 ---
 
 ## 3. Plugin layout (verified against docs — see `docs/research-notes.md`)
@@ -121,6 +135,7 @@ The repo root is the plugin, and also a single-plugin marketplace.
 │   ├── decide/SKILL.md
 │   ├── handoff/SKILL.md
 │   ├── note/SKILL.md
+│   ├── update/SKILL.md
 │   └── sync/SKILL.md
 ├── hooks/hooks.json           # SessionStart, PreToolUse (Edit|Write|MultiEdit), PostToolUse (merge), SessionEnd
 ├── scripts/
@@ -183,6 +198,11 @@ Every feature runs automatically or when asked (§2.7); the slash command is the
 
 ⏸ **Checkpoint:** demo the multi-clone flow end to end.
 
+### Phase 2.5 — Git autopilot (§2.8)
+- `lib/workflow.mjs`: default-branch detection, safe fast-forward, merge-or-abort, conflict listing, post-merge cleanup.
+- `claim` creates the task branch; SessionStart updates the branch; background refresh fetches the default branch; PreToolUse "main changed your files" notice; `update` CLI + skill; merge hook and SessionStart cleanup after merge; git standing rules.
+- Tests: task branch from fresh main (clean and with uncommitted changes); auto-merge at session start; conflict leaves the branch untouched; dirty tree skips the update; local default fast-forwards only when nothing is lost; mid-session notice fires once per new tip; `update` leaves conflicts for the agent; post-merge cleanup deletes the branch only when its tip was merged.
+
 ### Phase 3 — Decisions, notes, handoffs
 - `multiplayer decide|note|handoff`; skills where the agent drafts the content and calls the CLI. `decide` and `note` are proactive; `handoff` runs when asked and transfers the claim.
 - Per-recipient local read tracking; notes age out after `noteDays`.
@@ -226,3 +246,4 @@ _None open._
 - **Release on merge:** automatic — PostToolUse hook on agent merges, plus a SessionStart check for PRs merged elsewhere. No GitHub Action. `keep: true` opts a claim out.
 - **Handoffs vs notes:** handoff = pass work to a named person and transfer the claim; note = team update to everyone. Handoff always needs a recipient.
 - **Automation:** every action runs automatically or when asked (handoff, creating the state branch); slash commands are only a manual override (§2.7).
+- **Git workflow:** agents run a merge-only, branch-per-task workflow (§2.8) so inexperienced users never manage git themselves.
