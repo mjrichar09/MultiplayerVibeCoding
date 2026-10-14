@@ -1,0 +1,10 @@
+{
+  "name": "crew",
+  "displayName": "Crew",
+  "version": "0.0.1",
+  "description": "Async coordination for teams of any size running Claude Code on one repo: claims, decisions, handoffs, and overlap warnings.",
+  "author": { "name": "mjrichar09" },
+  "repository": "https://github.com/mjrichar09/MultiplayerVibeCoding",
+  "license": "MIT",
+  "keywords": ["collaboration", "team", "coordination", "multiplayer"]
+}
