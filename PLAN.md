@@ -116,6 +116,19 @@ People talk about tasks, never branches. Agents run one fixed, merge-only workfl
 
 Config: `defaultBranch` (auto-detected), `autoBranch` (default true), `autoUpdate` (default true).
 
+### 2.9 Parallel agents — leads, workers, worktrees
+One person often runs several agents at once. The plugin supports three setups:
+
+| Setup | How it works |
+|---|---|
+| **Separate worktrees** (`git worktree`, Orca, …) | Every worktree of a clone shares one team state (the main checkout's `.multiplayer/`, or `<git-dir>/multiplayer/state` for bare repos) and keeps its own branch, so claims and the git autopilot work per worktree. Unmarked worktree sessions are ordinary sessions. |
+| **Lead + workers** (an orchestrator agent owns git) | The **lead** claims the whole task, assigns workers distinct files, commits, merges, and opens the PR. **Workers** only edit: no claim nudges, no automatic git steps, and a warning (never a block) if they run git, PR, claim, decide, or handoff commands. Subagents are workers automatically (their hook input carries `agent_id`); separate sessions become workers via `multiplayer worker [--dir <worktree>] [--task … --paths …]` (which can also claim the task for the person) or `MULTIPLAYER_ROLE=worker`. Workers see worker rules instead of the standing rules; editing outside an assignment warns. |
+| **Unmanaged sessions in one folder** (fallback) | Sessions register in `.local/sessions/` (heartbeat via PreToolUse; gone after SessionEnd or 30 min of silence). While another session is active in the same folder, automatic git steps pause: no session-start merge or branch switch, no post-merge cleanup, and claims don't start a branch. The pause lifts by itself when the others end; nothing is pushed automatically — the agents still commit and push as part of normal work. |
+
+Across all setups, PreToolUse tracks which session or subagent edited which files (one record per actor; a finished subagent is forgotten at SubagentStop) and warns when another of *my* agents — a sibling subagent, another session in the folder, or a session in another worktree — recently edited the same file.
+
+**Handoff suggestions:** a standing rule tells agents to *offer* (never make) a handoff when the user says they'll be away, are stopping, are stuck, or someone else should continue; my claims quiet for `staleClaimDays − 1` days are flagged "finish it, release it, or offer a handoff"; a first-session welcome lists plain-language requests including "hand this to <name>".
+
 ---
 
 ## 3. Plugin layout (verified against docs — see `docs/research-notes.md`)
@@ -203,6 +216,10 @@ Every feature runs automatically or when asked (§2.7); the slash command is the
 - `claim` creates the task branch; SessionStart updates the branch; background refresh fetches the default branch; PreToolUse "main changed your files" notice; `update` CLI + skill; merge hook and SessionStart cleanup after merge; git standing rules.
 - Tests: task branch from fresh main (clean and with uncommitted changes); auto-merge at session start; conflict leaves the branch untouched; dirty tree skips the update; local default fast-forwards only when nothing is lost; mid-session notice fires once per new tip; `update` leaves conflicts for the agent; post-merge cleanup deletes the branch only when its tip was merged.
 
+### Phase 2.6 — Parallel agents and handoff suggestions (§2.9)
+- Shared state across worktrees (incl. bare repos); lead/worker roles (subagents automatic, `worker` command and `MULTIPLAYER_ROLE` for sessions); session registry and shared-folder pause; per-actor edit tracking and sibling warnings; SubagentStop hook; handoff suggestions.
+- Tests: worktrees (normal and bare) share state and keep branches; subagent workers get no nudges and are warned on git/claims; sibling subagents and cross-worktree edits warn; worker sessions get worker rules, assignment warnings, no autopilot, refused claims; shared-folder pause and its automatic lift; idle-claim suggestions and the welcome.
+
 ### Phase 3 — Decisions, notes, handoffs
 - `multiplayer decide|note|handoff`; skills where the agent drafts the content and calls the CLI. `decide` and `note` are proactive; `handoff` runs when asked and transfers the claim.
 - Per-recipient local read tracking; notes age out after `noteDays`.
@@ -247,3 +264,4 @@ _None open._
 - **Handoffs vs notes:** handoff = pass work to a named person and transfer the claim; note = team update to everyone. Handoff always needs a recipient.
 - **Automation:** every action runs automatically or when asked (handoff, creating the state branch); slash commands are only a manual override (§2.7).
 - **Git workflow:** agents run a merge-only, branch-per-task workflow (§2.8) so inexperienced users never manage git themselves.
+- **Parallel agents:** worktrees share team state; an orchestrator lead owns git and claims while workers only edit (subagents detected automatically, Orca-style sessions marked with `multiplayer worker`); unmanaged sessions in one folder pause automatic git steps until the others end (§2.9).

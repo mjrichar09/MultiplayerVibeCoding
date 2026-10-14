@@ -3,7 +3,7 @@
 // so `pull --rebase` never conflicts; only the push can lose a race.
 
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { appendFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -78,7 +78,38 @@ export async function remoteHasStateBranch(root, remote, { timeout } = {}) {
   return out.trim().length > 0;
 }
 
-export const stateDir = (root) => path.join(root, STATE_DIR);
+/**
+ * Where a worktree's git data lives: { gitDir, commonDir, mainRoot }. Linked
+ * worktrees (git worktree add, Orca, ...) share the main checkout's commonDir;
+ * mainRoot is null for worktrees of a bare repository.
+ */
+export function gitLayout(root) {
+  const dotgit = path.join(root, '.git');
+  let gitDir = dotgit;
+  try {
+    if (!statSync(dotgit).isDirectory()) {
+      const m = /gitdir:\s*(.+)/.exec(readFileSync(dotgit, 'utf8'));
+      if (m) gitDir = path.resolve(root, m[1].trim());
+    }
+  } catch {
+    return { gitDir, commonDir: gitDir, mainRoot: root };
+  }
+  const commondirFile = path.join(gitDir, 'commondir');
+  const commonDir = existsSync(commondirFile)
+    ? path.resolve(gitDir, readFileSync(commondirFile, 'utf8').trim())
+    : gitDir;
+  const mainRoot = path.basename(commonDir) === '.git' ? path.dirname(commonDir) : null;
+  return { gitDir, commonDir, mainRoot };
+}
+
+/**
+ * The team-state worktree, shared by every worktree of this clone: the main
+ * checkout's .multiplayer/, or inside the git directory for a bare repo.
+ */
+export function stateDir(root) {
+  const { commonDir, mainRoot } = gitLayout(root);
+  return mainRoot ? path.join(mainRoot, STATE_DIR) : path.join(commonDir, 'multiplayer', 'state');
+}
 
 export function isAttached(root) {
   return existsSync(path.join(stateDir(root), '.git'));

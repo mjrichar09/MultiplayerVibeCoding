@@ -18,10 +18,20 @@ export const STANDING_RULES = [
   '- Claim before your first edit on a new task (multiplayer:claim, narrow paths); extend the claim if the work grows. Ask the user before editing files a teammate has claimed.',
   '- Git: commit at checkpoints; work only on your task branch; never force-push, rebase, or commit to the default branch. If told the default branch changed your files, commit and use multiplayer:update.',
   '- When done: push, open a PR, squash-merge once approved; the claim and branch clean up automatically. Release by hand (multiplayer:release) only for work that ends without a PR.',
-  '- When a design choice is settled (the user agreed, or an alternative was rejected for a reason), record it with multiplayer:decide.',
-  '- When you learn something teammates need (broken setup, flaky test, changed command, half-done work), post it with multiplayer:note.',
-  '- Only when the user asks to pass work to a teammate, use multiplayer:handoff.',
+  '- Record settled design choices with multiplayer:decide (the user agreed, or an alternative was rejected for a reason). Post things teammates need (broken setup, flaky test, changed command) with multiplayer:note.',
+  '- If the user says they will be away, are stopping for a while, are stuck, or someone else should continue, offer a handoff to a fitting teammate (e.g. one with related claims). Use multiplayer:handoff only if they agree.',
+  '- Delegating to subagents or parallel agents? Claim the whole task yourself first, give each worker distinct files, and tell workers to leave git and claims to you; you commit, merge, and open the PR.',
 ];
+
+export function workerRules(role) {
+  const assigned = role?.paths?.length ? ` (${role.paths.join(', ')})` : '';
+  return [
+    `You are a worker agent${role?.lead ? ` under ${role.lead}'s lead session` : ''} (multiplayer plugin):`,
+    `- Edit only the files you were assigned${assigned}. Leave git (commits, branches, merges, pushes), PRs, claims, decisions, and handoffs to your lead.`,
+    '- If a warning says a teammate or another agent is working on a file, stop and tell your lead.',
+    '- When done, report what you changed and anything teammates should know; your lead records it.',
+  ];
+}
 
 const pathList = (paths, max = 3) =>
   `[${paths.slice(0, max).join(', ')}${paths.length > max ? `, +${paths.length - max}` : ''}]`;
@@ -34,12 +44,21 @@ function describeClaim(c, ctx) {
   if (pending) flags.push(`handing off to ${pending.to.join(', ')}`);
   const pr = mergedPr(c, ctx.prCache);
   if (pr) flags.push(`PR #${pr.number} merged${c.keep ? ', kept open' : ''}`);
-  if (isStale(c, ctx.config, ctx.at)) flags.push(`STALE, no activity ${ago(c.updated ?? c.started, ctx.at)}`);
+  const quiet = `for ${ago(c.updated ?? c.started, ctx.at).replace(/ ago$/, '')}`;
+  if (isStale(c, ctx.config, ctx.at)) {
+    flags.push(c.user === ctx.me ? `STALE, no activity ${quiet}: finish it, release it, or offer a handoff` : `STALE, no activity ${quiet}`);
+  } else if (c.user === ctx.me && isIdle(c, ctx)) flags.push(`no activity ${quiet}: finish it, release it, or offer a handoff`);
   if (ctx.lastSeen && new Date(c.started) > new Date(ctx.lastSeen) && c.user !== ctx.me) flags.push('new');
   const where = [c.branch, c.issue ? `#${c.issue}` : null, `updated ${ago(c.updated ?? c.started, ctx.at)}`]
     .filter(Boolean)
     .join(', ');
   return `- ${c.slug}: ${c.task} ${pathList(c.paths)} (${where})${flags.length ? ` — ${flags.join('; ')}` : ''}`;
+}
+
+// My claim is getting quiet: a day before it would turn stale.
+function isIdle(c, ctx) {
+  const days = Math.max(1, (ctx.config.staleClaimDays ?? 3) - 1);
+  return ctx.at - new Date(c.updated ?? c.started) > days * DAY_MS;
 }
 
 const firstLine = (text) => (text ?? '').split('\n').find((l) => l.trim()) ?? '';
@@ -63,7 +82,7 @@ function fill(items, budget) {
 export function renderBriefing(ctx) {
   const cap = ctx.cap ?? BRIEFING_LINE_CAP;
   const full = cap === Infinity;
-  const rules = ctx.rules === false ? [] : STANDING_RULES;
+  const rules = ctx.rules === false ? [] : ctx.role ? workerRules(ctx.role) : STANDING_RULES;
   const at = ctx.at;
   const active = activeClaims(ctx.claims);
   const handoffs = ctx.handoffs ?? [];

@@ -214,7 +214,7 @@ test('stale claims can be taken over; the owner is told and their claim retires'
 
   team.setNow(new Date(Date.now() + 4 * 24 * 3600 * 1000).toISOString());
   const s = await carol.hook('session-start');
-  assert.match(context(s), /auth-rewrite: Auth rewrite[^\n]*STALE, no activity 4d ago/);
+  assert.match(context(s), /auth-rewrite: Auth rewrite[^\n]*STALE, no activity for 4d/);
 
   const r = await ok(carol.run(['claim', '--takeover', 'bob--auth-rewrite']));
   assert.match(r.stdout, /Took over "auth-rewrite" for carol: Auth rewrite \[src\/auth\/\*\*\].*supersedes bob--auth-rewrite/);

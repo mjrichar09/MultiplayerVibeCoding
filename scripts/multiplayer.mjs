@@ -10,10 +10,11 @@ import { activeClaims, claim, listClaims, release } from './lib/claims.mjs';
 import { decide, handoff, listEntries, note } from './lib/entries.mjs';
 import { isAttached, stateDir } from './lib/git.mjs';
 import { prs } from './lib/gh.mjs';
-import { postToolUse, preToolUse, sessionEnd, sessionStart } from './lib/hooks.mjs';
+import { postToolUse, preToolUse, sessionEnd, sessionStart, subagentStop } from './lib/hooks.mjs';
 import { identity } from './lib/identity.mjs';
 import { init, locate } from './lib/init.mjs';
 import { listMembers } from './lib/state.mjs';
+import { activeSessions, setWorker, workerRole } from './lib/sessions.mjs';
 import { openTeam } from './lib/team.mjs';
 import { now, splitList } from './lib/util.mjs';
 import { currentBranchOrNull, defaultBranch, fastForwardLocal, fetchDefault, mergeDefault } from './lib/workflow.mjs';
@@ -23,6 +24,7 @@ const HOOKS = {
   'pre-tool-use': preToolUse,
   'post-tool-use': postToolUse,
   'session-end': sessionEnd,
+  'subagent-stop': subagentStop,
 };
 
 const COMMANDS = {
@@ -35,6 +37,7 @@ const COMMANDS = {
   note: runNote,
   handoff: runHandoff,
   update: runUpdate,
+  worker: runWorker,
   // Background refresh started by the PreToolUse hook: pull state, refresh the
   // PR cache, and fetch the default branch (refs only; never touches files).
   refresh: async () => {
@@ -86,6 +89,11 @@ async function runClaim(argv) {
     },
   });
   const team = await openTeam(process.cwd());
+  if (await workerRole(team.root)) {
+    throw new Error('This is a worker session: your lead claims work. Report what you need to your lead instead.');
+  }
+  // Another session shares this checkout: don't switch its branch underneath it.
+  const sharing = (await activeSessions(team.root)).filter((s) => s.worktree === team.root).length > 1;
   const result = await claim(team, {
     task: values.task,
     paths: splitList(values.paths ?? []),
@@ -94,9 +102,12 @@ async function runClaim(argv) {
     notes: values.notes,
     takeover: values.takeover,
     keep: values.keep ? true : values['no-keep'] ? false : undefined,
-    noBranch: values['no-branch'],
+    noBranch: values['no-branch'] || sharing,
   });
   const c = result.claim;
+  if (sharing && !values['no-branch']) {
+    console.log('Another agent session is active in this folder, so no task branch was started (it would switch the branch under it).');
+  }
   const verb = { created: 'Claimed', updated: 'Updated claim', 'took-over': 'Took over' }[result.status];
   console.log(
     `${verb} "${c.slug}" for ${c.user}: ${c.task} [${c.paths.join(', ')}] on ${c.branch || '(no branch)'}` +
@@ -191,6 +202,39 @@ async function runStatus(argv) {
     rules: false,
   });
   console.log(lines.join('\n'));
+}
+
+// Mark a worktree's sessions as workers under a lead (PLAN §2.9). With a task
+// and paths, also claim that work for the person, on the worktree's branch.
+async function runWorker(argv) {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      dir: { type: 'string' },
+      task: { type: 'string' },
+      paths: { type: 'string', multiple: true },
+      off: { type: 'boolean' },
+    },
+  });
+  const cwd = values.dir ?? process.cwd();
+  const team = await openTeam(cwd);
+  if (values.off) {
+    await setWorker(team.root, null);
+    console.log(`Sessions in ${team.root} are no longer workers.`);
+    return;
+  }
+  const paths = splitList(values.paths ?? []);
+  await setWorker(team.root, { lead: team.me.user, task: values.task ?? null, paths });
+  let claimed = '';
+  if (values.task && paths.length) {
+    const r = await claim(team, { task: values.task, paths, noBranch: true });
+    claimed = ` Claimed "${r.claim.slug}" [${r.claim.paths.join(', ')}] for ${team.me.user} on ${r.claim.branch || '(no branch)'}.`;
+    for (const o of r.overlaps) claimed += `\n⚠️ Overlaps ${o.claim.user}'s claim "${o.claim.slug}" on ${o.paths.join(', ')}.`;
+  }
+  console.log(
+    `Sessions in ${team.root} are now workers${paths.length ? ` assigned to ${paths.join(', ')}` : ''}: ` +
+      `they edit files and leave git, PRs, and claims to the lead.${claimed}`,
+  );
 }
 
 // Bring the current branch up to date with the default branch by merging

@@ -9,6 +9,16 @@ import { fileURLToPath } from 'node:url';
 import { renderBriefing } from './briefing.mjs';
 import { activeClaims, claim, covers, isStale, listClaims, mergedPr, release, snapshot, supersededBy } from './claims.mjs';
 import { listEntries } from './entries.mjs';
+import {
+  endSession,
+  forgetAgent,
+  heartbeat,
+  otherEditors,
+  peersInFolder,
+  recordEdit,
+  registerSession,
+  workerRole,
+} from './sessions.mjs';
 import { STATE_DIR, currentBranch, git, isAttached, localDir, remoteHasStateBranch, stateDir } from './git.mjs';
 import { prView, prs, readPrCache } from './gh.mjs';
 import { identity } from './identity.mjs';
@@ -87,12 +97,29 @@ export async function sessionStart(input, { env = process.env } = {}) {
   const at = now(env);
   const events = [];
   const notices = [];
-  if (joined.status === 'joined') notices.push(`joined team as ${team.me.user} (${team.members.length} members)`);
+  if (joined.status === 'joined') {
+    notices.push(`joined team as ${team.me.user} (${team.members.length} members)`);
+    events.push(WELCOME);
+  }
+
+  // Parallel agents (PLAN §2.9): workers leave git and team actions to their
+  // lead; unmanaged sessions sharing this folder pause the automatic git steps.
+  const role = await workerRole(root, input, env);
+  const peers = role ? [] : await peersInFolder(root, input.session_id);
+  await registerSession(root, input.session_id, { role: role ? 'worker' : 'lead' });
+  const gitPaused = peers.length > 0;
+  if (gitPaused) {
+    events.push(
+      `${plural(peers.length, 'other agent session')} ${peers.length === 1 ? 'is' : 'are'} active in this folder, so automatic git steps ` +
+        '(branch updates, switching, cleanup) are paused until ' + (peers.length === 1 ? 'it ends' : 'they end') +
+        '. You share one checkout: coordinate commits and branch changes with the user.',
+    );
+  }
 
   // Auto-release (PLAN §2.7): my claims whose PR merged, or that a teammate took over.
   let claims = await listClaims(team.dir);
   const toRelease = [];
-  for (const c of claims.filter((c) => c.user === team.me.user)) {
+  for (const c of role ? [] : claims.filter((c) => c.user === team.me.user)) {
     const taker = supersededBy(claims, c.id);
     const pr = mergedPr(c, prCache);
     if (taker?.handoff) toRelease.push({ claim: c, outcome: `handed off to ${taker.user}`, event: `${taker.user} accepted your handoff of "${c.slug}".` });
@@ -118,7 +145,7 @@ export async function sessionStart(input, { env = process.env } = {}) {
   const read = await readLocal(root, 'read.json', { handoffs: [] });
   const accepted = new Set(claims.map((c) => c.handoff).filter(Boolean));
   let switchedBranch = false;
-  for (const h of handoffs.filter((h) => h.to?.includes(team.me.user) && !read.handoffs.includes(h.id))) {
+  for (const h of role ? [] : handoffs.filter((h) => h.to?.includes(team.me.user) && !read.handoffs.includes(h.id))) {
     const target = h.claim && activeClaims(claims).find((c) => c.id === h.claim);
     if (target && !accepted.has(h.id)) {
       try {
@@ -132,7 +159,7 @@ export async function sessionStart(input, { env = process.env } = {}) {
         notices.push(`couldn't accept ${h.user}'s handoff: ${err.message}`);
       }
     } else if (!h.claim) notices.push(`${h.user} sent you a handoff: ${h.title}.`);
-    if (h.branch && team.config.autoUpdate !== false && !switchedBranch) {
+    if (h.branch && team.config.autoUpdate !== false && !switchedBranch && !gitPaused) {
       const base = await defaultBranch(root, remote, team.config);
       const r = await checkoutHandedBranch(root, remote, base, h.branch, { timeout });
       if (r.status === 'switched') {
@@ -143,7 +170,7 @@ export async function sessionStart(input, { env = process.env } = {}) {
   }
   claims = await listClaims(team.dir);
 
-  if (team.config.autoUpdate !== false) {
+  if (team.config.autoUpdate !== false && !role && !gitPaused) {
     for (const e of await gitAutopilot(team, toRelease, prCache, timeout)) {
       events.push(e);
       notices.push(e);
@@ -165,6 +192,7 @@ export async function sessionStart(input, { env = process.env } = {}) {
     at,
     lastSeen: lastSeen?.at,
     events,
+    role,
   });
   await writeLocal(root, 'last-seen.json', { at: at.toISOString() });
   const shownToMe = handoffs.filter((h) => h.to?.includes(team.me.user)).map((h) => h.id);
@@ -173,6 +201,20 @@ export async function sessionStart(input, { env = process.env } = {}) {
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+const WELCOME =
+  "welcome to the team! Teammates' claims, decisions, and notes now appear here at each session start. " +
+  'Things the user can simply say: "what is the team working on?", "hand this to <name>", ' +
+  '"record that we decided …", "tell the team …". Mention this to the user once.';
+
+// Per-worktree record of the default-branch tip we've already told the agent about.
+async function incomingSeen(root) {
+  return (await readLocal(root, 'incoming-seen.json', {}))[root];
+}
+async function setIncomingSeen(root, tip) {
+  const all = await readLocal(root, 'incoming-seen.json', {});
+  await writeLocal(root, 'incoming-seen.json', { ...all, [root]: tip });
+}
 
 /**
  * Session-start git upkeep (PLAN §2.8), before the agent has read anything:
@@ -210,7 +252,7 @@ async function gitAutopilot(team, released, prCache, timeout) {
     );
   }
   const incoming = await incomingFiles(root, remote, base);
-  await writeLocal(root, 'incoming-seen.json', { tip: incoming.tip });
+  await setIncomingSeen(root, incoming.tip);
   return events;
 }
 
@@ -251,12 +293,34 @@ function realish(file) {
 /** Directory used to throttle "claim this" nudges: one per directory per session. */
 const areaOf = (rel) => path.posix.dirname(rel);
 
+// Commands a worker should leave to its lead (PLAN §2.9).
+const LEAD_ONLY_COMMAND =
+  /\bgit\s+(commit|merge|rebase|push|pull|switch|checkout|reset|branch|stash|cherry-pick|revert)\b|\bgh\s+pr\s+(create|merge)\b|multiplayer\.mjs\s+(claim|release|update|handoff|init|decide)\b/;
+const LEAD_ONLY_SKILL = /^multiplayer:(claim|release|update|handoff|init|decide)$/;
+
+/** Warn a worker that's about to do its lead's job (git, claims, PRs). Never blocks. */
+async function workerCommandCheck(input, env) {
+  const command = input.tool_name === 'Bash' ? input.tool_input?.command ?? '' : '';
+  const skill = input.tool_name === 'Skill' ? input.tool_input?.skill ?? input.tool_input?.name ?? '' : '';
+  if (!LEAD_ONLY_COMMAND.test(command) && !LEAD_ONLY_SKILL.test(skill)) return null;
+  const located = await locateOrNull(input, env);
+  if (!located || !isAttached(located.root)) return null;
+  if (!(await workerRole(located.root, input, env))) return null;
+  return output(
+    'PreToolUse',
+    'multiplayer: you are a worker agent. Leave git (commits, branches, merges, pushes), PRs, claims, decisions, and handoffs to your lead: ' +
+      'finish your edits and report what you changed. Only proceed if your lead explicitly asked you to do this.',
+  );
+}
+
 export async function preToolUse(input, { env = process.env } = {}) {
+  if (input.tool_name === 'Bash' || input.tool_name === 'Skill') return workerCommandCheck(input, env);
   const target = input.tool_input?.file_path || input.tool_input?.notebook_path;
   if (!target) return null;
   const located = await locateOrNull(input, env);
   if (!located || !isAttached(located.root)) return null;
   const { root } = located;
+  await heartbeat(root, input.session_id);
   const rel = path
     .relative(realish(root), realish(path.resolve(input.cwd || root, target)))
     .split(path.sep)
@@ -273,22 +337,48 @@ export async function preToolUse(input, { env = process.env } = {}) {
     readPrCache(root),
   ]);
   const at = now(env);
+  const role = await workerRole(root, input, env);
   const active = activeClaims(claims).filter((c) => !mergedPr(c, prCache));
-  const seenFile = `session-${String(input.session_id || 'none').replace(/[^\w-]/g, '')}.json`;
-  const seen = await readLocal(root, seenFile, { warned: [], nudged: [] });
+  const actor = [input.session_id, input.agent_id].filter(Boolean).join('--') || 'none';
+  const seenFile = `session-${actor.replace(/[^\w-]/g, '')}.json`;
+  const seen = await readLocal(root, seenFile, { warned: [], nudged: [], siblings: [] });
+  seen.siblings ??= [];
   const messages = [];
+  const askWho = role ? 'your lead' : 'the user';
+
+  // My other agents (subagents, parallel sessions, other worktrees) on the same file.
+  const siblings = await otherEditors(root, input, rel);
+  await recordEdit(root, input, rel);
+  if (siblings.length && !seen.siblings.includes(rel)) {
+    const who = siblings
+      .map((e) =>
+        e.agentId
+          ? `a ${e.agentType ? `${e.agentType} ` : ''}subagent${e.session === input.session_id ? ' in this session' : ''}`
+          : e.worktree === root
+            ? 'another session in this folder'
+            : `a session in worktree ${path.basename(e.worktree)}`,
+      )
+      .join(' and ');
+    messages.push(
+      `⚠️ multiplayer: ${who} also edited ${rel} recently. Make sure you're not overwriting each other's work; check with ${askWho} if unsure.`,
+    );
+    seen.siblings.push(rel);
+  }
 
   const theirs = active.filter((c) => c.user !== me.user && covers(c, rel));
   if (theirs.length && !seen.warned.includes(rel)) {
     const who = theirs
       .map((c) => `${c.user} (claim "${c.slug}": ${c.task}, updated ${ago(c.updated ?? c.started, at)}${isStale(c, config, at) ? ', stale' : ''})`)
       .join(' and ');
-    messages.push(`⚠️ multiplayer: ${who} ${theirs.length > 1 ? 'are' : 'is'} working on ${rel}. Confirm with the user before proceeding.`);
+    messages.push(`⚠️ multiplayer: ${who} ${theirs.length > 1 ? 'are' : 'is'} working on ${rel}. Confirm with ${askWho} before proceeding.`);
     seen.warned.push(rel);
   }
 
   const mine = active.some((c) => c.user === me.user && covers(c, rel));
-  if (!mine && !seen.nudged.includes(areaOf(rel))) {
+  if (role?.paths?.length && !matchesAny(role.paths, rel) && !seen.nudged.includes(areaOf(rel))) {
+    messages.push(`multiplayer: ${rel} is outside your assigned files (${role.paths.join(', ')}). Check with your lead before editing it.`);
+    seen.nudged.push(areaOf(rel));
+  } else if (!role && !mine && !seen.nudged.includes(areaOf(rel))) {
     messages.push(
       `multiplayer: none of your claims covers ${rel}. Before continuing, claim this work with the multiplayer:claim skill (narrow paths), or extend your existing claim to cover it.`,
     );
@@ -298,12 +388,12 @@ export async function preToolUse(input, { env = process.env } = {}) {
   // New commits on the default branch touching files I've claimed (fetched by
   // the background refresh). Once per new tip.
   const mineActive = active.filter((c) => c.user === me.user);
-  if (mineActive.length) {
+  if (mineActive.length && !role) {
     const base = await defaultBranch(root, located.remote, config);
     const branch = await currentBranchOrNull(root);
     if (branch && branch !== base) {
       const incoming = await incomingFiles(root, located.remote, base);
-      const lastTip = (await readLocal(root, 'incoming-seen.json', {})).tip;
+      const lastTip = await incomingSeen(root);
       const hits = incoming.files.filter((f) => mineActive.some((c) => matchesAny(c.paths, f)));
       if (incoming.tip && incoming.tip !== lastTip && hits.length) {
         const shown = hits.slice(0, 3).join(', ') + (hits.length > 3 ? `, +${hits.length - 3} more` : '');
@@ -311,7 +401,7 @@ export async function preToolUse(input, { env = process.env } = {}) {
           `multiplayer: ${base} has new changes to files in your claims (${shown}). ` +
             'At your next checkpoint, commit your work and use the multiplayer:update skill to merge them in.',
         );
-        await writeLocal(root, 'incoming-seen.json', { tip: incoming.tip });
+        await setIncomingSeen(root, incoming.tip);
       }
     }
   }
@@ -374,7 +464,8 @@ export async function postToolUse(input, { env = process.env } = {}) {
     await release({ ...team, timeout: HOOK_NET_TIMEOUT_MS }, mine.map((c) => ({ claim: c, outcome: `merged in #${pr.number}` })));
     parts.push(`released ${mine.map((c) => `"${c.slug}"`).join(', ')} (PR #${pr.number} merged)`);
   }
-  if (team.config.autoUpdate !== false) {
+  const busyFolder = (await workerRole(root, input, env)) || (await peersInFolder(root, input.session_id)).length;
+  if (team.config.autoUpdate !== false && !busyFolder) {
     const base = await defaultBranch(root, team.remote, team.config);
     const r = await cleanupMergedBranch(root, team.remote, base, pr.headRefName, pr.headRefOid, {
       timeout: HOOK_NET_TIMEOUT_MS,
@@ -393,6 +484,7 @@ export async function sessionEnd(input, { env = process.env } = {}) {
   const located = await locateOrNull(input, env);
   if (!located || !isAttached(located.root)) return null;
   const { root } = located;
+  await endSession(root, input.session_id); // lifts the shared-folder pause for others
   const branch = await currentBranch(root);
   if (!branch) return null;
 
@@ -419,5 +511,14 @@ export async function sessionEnd(input, { env = process.env } = {}) {
   } catch {
     // Push failed (offline?). The commit stays local and is pushed at next session start.
   }
+  return null;
+}
+
+// --------------------------------------------------------------- SubagentStop
+
+/** A finished subagent no longer counts as a concurrent editor. */
+export async function subagentStop(input, { env = process.env } = {}) {
+  const located = await locateOrNull(input, env);
+  if (located && isAttached(located.root)) await forgetAgent(located.root, input);
   return null;
 }

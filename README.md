@@ -31,6 +31,14 @@ claude plugin marketplace add mjrichar09/MultiplayerVibeCoding
 claude plugin install multiplayer@multiplayer-vibe-coding
 ```
 
+## Running several agents at once
+
+- **Separate worktrees** (`git worktree`, [Orca](https://onorca.dev/), …): fully supported. Every worktree shares the team state and keeps its own branch, so each agent works as a normal session.
+- **A lead agent with workers** (subagents, or worktree sessions marked with `multiplayer worker`): the lead claims the task, splits the files, and does all the git; workers only edit and are warned if they try git or claims. Subagents are detected automatically.
+- **Several sessions in one folder**: works, but they share one checkout, so automatic git steps pause until the other sessions end. Separate worktrees are smoother.
+
+Whatever the setup, your own agents are warned when they edit the same file as each other.
+
 ## Develop
 
 ```
