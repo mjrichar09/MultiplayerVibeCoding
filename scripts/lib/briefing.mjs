@@ -3,13 +3,14 @@
 // Priority: handoffs to me → claims overlapping mine → new decisions →
 // recent notes → other teammates' claims.
 
-import { activeClaims, isStale, mergedPr } from './claims.mjs';
+import { activeClaims, isStale, mergedPr, prOverlaps } from './claims.mjs';
 import { current } from './entries.mjs';
 import { patternsOverlap } from './glob.mjs';
 import { DAY_MS, ago } from './util.mjs';
 
 export const BRIEFING_LINE_CAP = 40;
 const MAX_OVERLAP_LINES = 8;
+const MAX_PR_LINES = 5;
 const MAX_HANDOFF_BODY_LINES = 8;
 const DECISION_DAYS = 14;
 
@@ -122,6 +123,16 @@ export function renderBriefing(ctx) {
     const n = full ? overlapping.length : MAX_OVERLAP_LINES;
     for (const c of overlapping.slice(0, n)) head.push(`- ${c.user} · ${describeClaim(c, ctx).slice(2)}`);
     if (overlapping.length > n) head.push(`- +${overlapping.length - n} more overlapping claims`);
+  }
+  const prHits = myPaths.length ? prOverlaps(myPaths, { prCache: ctx.prCache, claims: ctx.claims, members: ctx.members, me: ctx.me }) : [];
+  if (prHits.length && !ctx.filterUser) {
+    head.push("⚠️ Teammates' open PRs change files you've claimed — expect conflicts; coordinate or update after they merge:");
+    const n = full ? prHits.length : MAX_PR_LINES;
+    for (const { pr, owner, files } of prHits.slice(0, n)) {
+      const shown = files.slice(0, 2).join(', ') + (files.length > 2 ? `, +${files.length - 2} more` : '');
+      head.push(`- ${owner} · PR #${pr.number}${pr.isDraft ? ' (draft)' : ''}${pr.title ? ` "${pr.title}"` : ''}: ${shown}`);
+    }
+    if (prHits.length > n) head.push(`- +${prHits.length - n} more PRs`);
   }
 
   // --- budgeted sections, in priority order

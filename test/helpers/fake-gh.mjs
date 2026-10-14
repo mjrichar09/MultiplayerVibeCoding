@@ -4,6 +4,10 @@
 // is missing, like an unauthenticated gh.
 import { readFileSync } from 'node:fs';
 
+if (process.env.FAKE_GH_GARBAGE) {
+  process.stdout.write('this is not json');
+  process.exit(0);
+}
 let fixture;
 try {
   fixture = JSON.parse(readFileSync(process.env.FAKE_GH_FIXTURE, 'utf8'));
@@ -19,6 +23,10 @@ const all = [
 if (args[0] === 'pr' && args[1] === 'list') {
   const state = args[args.indexOf('--state') + 1];
   process.stdout.write(JSON.stringify(state === 'merged' ? fixture.merged ?? [] : fixture.open ?? []));
+} else if (args[0] === 'api' && args[1] === 'user') {
+  const login = process.env.FAKE_GH_USER ?? fixture.user;
+  if (!login) process.exit(1);
+  process.stdout.write(JSON.stringify({ login }));
 } else if (args[0] === 'pr' && args[1] === 'view') {
   const ref = args[2] && !args[2].startsWith('-') ? args[2] : null;
   const pr = all.find((p) => String(p.number) === ref || p.headRefName === ref || p.url === ref);

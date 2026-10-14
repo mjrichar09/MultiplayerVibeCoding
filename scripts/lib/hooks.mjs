@@ -7,7 +7,8 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderBriefing } from './briefing.mjs';
-import { activeClaims, claim, covers, isStale, listClaims, mergedPr, release, snapshot, supersededBy } from './claims.mjs';
+import { activeClaims, claim, covers, isStale, listClaims, mergedPr, prOverlaps, release, snapshot, supersededBy } from './claims.mjs';
+import { listMembers } from './state.mjs';
 import { listEntries } from './entries.mjs';
 import {
   endSession,
@@ -259,6 +260,7 @@ async function gitAutopilot(team, released, prCache, timeout) {
 // ----------------------------------------------------------------- PreToolUse
 
 export const REFRESH_INTERVAL_MS = 2 * 60 * 1000;
+const PR_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
 
 /**
  * Kick off a detached background pull + PR-cache refresh if the last one is
@@ -330,12 +332,15 @@ export async function preToolUse(input, { env = process.env } = {}) {
   // Local reads only: no pull, no gh call (PreToolUse budget < 1s).
   await maybeRefreshInBackground(root, env);
   const dir = stateDir(root);
-  const [me, config, claims, prCache] = await Promise.all([
+  const [me, config, claims, cachedPrs, members] = await Promise.all([
     identity(root, env),
     readConfig(dir),
     listClaims(dir),
     readPrCache(root),
+    listMembers(dir),
   ]);
+  // Open-PR file lists are only trusted while fresh (the refresh runs every few minutes).
+  const prCache = cachedPrs && Date.now() - cachedPrs.fetchedAt < PR_CACHE_MAX_AGE_MS ? cachedPrs : { merged: cachedPrs?.merged ?? [] };
   const at = now(env);
   const role = await workerRole(root, input, env);
   const active = activeClaims(claims).filter((c) => !mergedPr(c, prCache));
@@ -365,12 +370,20 @@ export async function preToolUse(input, { env = process.env } = {}) {
     seen.siblings.push(rel);
   }
 
+  // Teammates' claims and open PRs on this file, one entry per person.
   const theirs = active.filter((c) => c.user !== me.user && covers(c, rel));
-  if (theirs.length && !seen.warned.includes(rel)) {
-    const who = theirs
-      .map((c) => `${c.user} (claim "${c.slug}": ${c.task}, updated ${ago(c.updated ?? c.started, at)}${isStale(c, config, at) ? ', stale' : ''})`)
-      .join(' and ');
-    messages.push(`⚠️ multiplayer: ${who} ${theirs.length > 1 ? 'are' : 'is'} working on ${rel}. Confirm with ${askWho} before proceeding.`);
+  const prHits = prOverlaps([rel], { prCache, claims, members, me: me.user });
+  if ((theirs.length || prHits.length) && !seen.warned.includes(rel)) {
+    const byOwner = new Map();
+    const add = (owner, what) => byOwner.set(owner, [...(byOwner.get(owner) ?? []), what]);
+    for (const c of theirs) {
+      add(c.user, `claim "${c.slug}": ${c.task}, updated ${ago(c.updated ?? c.started, at)}${isStale(c, config, at) ? ', stale' : ''}`);
+    }
+    for (const { pr, owner } of prHits) add(owner, `open ${pr.isDraft ? 'draft ' : ''}PR #${pr.number}${pr.title ? ` "${pr.title}"` : ''} changes it`);
+    const MAX = 3;
+    const list = (whats) => whats.slice(0, MAX).join('; ') + (whats.length > MAX ? `; +${whats.length - MAX} more` : '');
+    const who = [...byOwner].map(([owner, whats]) => `${owner} (${list(whats)})`).join(' and ');
+    messages.push(`⚠️ multiplayer: ${who} ${byOwner.size > 1 ? 'are' : 'is'} working on ${rel}. Confirm with ${askWho} before proceeding.`);
     seen.warned.push(rel);
   }
 

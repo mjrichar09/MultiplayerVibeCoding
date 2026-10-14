@@ -46,15 +46,22 @@ export async function prs(root, { env = process.env, refresh = false } = {}) {
   const cached = await readPrCache(root);
   if (!refresh && cached && Date.now() - cached.fetchedAt < ttl) return cached;
 
-  const fields = 'number,headRefName,headRefOid,author,mergedAt,url';
+  const fields = 'number,title,headRefName,headRefOid,author,mergedAt,url';
   const [merged, open] = await Promise.all([
     gh(['pr', 'list', '--state', 'merged', '--limit', '50', '--json', fields], { cwd: root, env }),
-    gh(['pr', 'list', '--state', 'open', '--limit', '100', '--json', fields], { cwd: root, env }),
+    // Open PRs include their changed files, for PR-overlap warnings (PLAN Phase 4).
+    gh(['pr', 'list', '--state', 'open', '--limit', '100', '--json', `${fields},isDraft,files`], { cwd: root, env }),
   ]);
   if (!merged && !open) return cached ?? null;
   const fresh = { fetchedAt: Date.now(), merged: merged ?? [], open: open ?? [] };
   await writeFile(await cacheFile(root), JSON.stringify(fresh)).catch(() => {});
   return fresh;
+}
+
+/** The GitHub login gh is authenticated as, or null. */
+export async function githubLogin(root, { env = process.env } = {}) {
+  const me = await gh(['api', 'user'], { cwd: root, env });
+  return typeof me?.login === 'string' ? me.login : null;
 }
 
 /** One PR's current state, bypassing the cache. `ref` is a number, URL, or branch. */

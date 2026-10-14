@@ -232,6 +232,7 @@ Every feature runs automatically or when asked (§2.7); the slash command is the
 - Path-glob matching against all teammates' claims (no network).
 - Optional `gh` PR-file overlap across all teammates' open PRs, with cache + timeout (refreshed by SessionStart / background, read-only in PreToolUse).
 - Tests for glob matching, multiple simultaneous overlaps, cache, `gh`-missing fallback, and fail-open on errors.
+- Done: open PRs are cached with their changed files (`gh pr list --json …,files`, refreshed at session start and by the background refresh; PreToolUse ignores data older than an hour). A PR's owner is the member with a claim on its branch, else the `<user>/…` branch prefix, else the member whose GitHub login (recorded at join via `gh api user`) matches the author, else `@login`. Warnings merge a person's claims and PRs into one entry (max 3 items each); the briefing lists teammates' PRs touching my claimed files; claiming warns about overlapping PRs. Measured: PreToolUse ≈ 75 ms with 100 open PRs × 50 files and 30 claims.
 
 ### Phase 5 — Sync + templates
 - `/multiplayer:sync` skill (updates `CLAUDE.md` as its own commit), triggered by the briefing's unsynced-decisions flag.

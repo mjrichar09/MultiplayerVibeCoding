@@ -19,6 +19,7 @@ import {
   repoRoot,
   stateDir,
 } from './git.mjs';
+import { githubLogin } from './gh.mjs';
 import { identity } from './identity.mjs';
 import { CONFIG_FILE, DEFAULT_CONFIG, listMembers, memberPath, readMember, writeJson } from './state.mjs';
 
@@ -106,10 +107,12 @@ async function register(root, remote, me, { timeout }) {
     }
     if (existing.active !== false) return false;
   }
+  const github = existing?.github ?? (await githubLogin(root).catch(() => null)) ?? undefined;
   const member = {
     user: me.user,
     name: me.name,
     email: me.email,
+    github,
     joined: existing?.joined ?? new Date().toISOString(),
     active: true,
   };

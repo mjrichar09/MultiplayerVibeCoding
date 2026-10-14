@@ -7,6 +7,7 @@ import { appendFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/pro
 import path from 'node:path';
 import { commitAndPush, currentBranch, trackedFiles } from './git.mjs';
 import { defaultBranch, startTaskBranch } from './workflow.mjs';
+import { readPrCache } from './gh.mjs';
 import { matchesAny, normalizePattern, patternsOverlap } from './glob.mjs';
 import { slugify } from './identity.mjs';
 import { formatFrontmatter, parseFrontmatter } from './state.mjs';
@@ -55,6 +56,34 @@ export function mergedPr(claim, prCache) {
 
 export const covers = (claim, file) => matchesAny(claim.paths, file);
 
+/**
+ * Who an open PR belongs to: the member with a claim on its branch, else the
+ * member named by a `<user>/…` branch, else the member with that GitHub login,
+ * else `@login`.
+ */
+export function prOwner(pr, { claims = [], members = [] }) {
+  const byClaim = claims.find((c) => c.branch && c.branch === pr.headRefName);
+  if (byClaim) return byClaim.user;
+  const prefix = pr.headRefName?.split('/')[0];
+  if (prefix && members.some((m) => m.user === prefix)) return prefix;
+  const login = pr.author?.login?.toLowerCase();
+  const member = login && members.find((m) => m.github?.toLowerCase() === login);
+  if (member) return member.user;
+  return login ? `@${login}` : 'someone';
+}
+
+/** Teammates' open PRs that change files matching `patterns`. Returns [{ pr, owner, files }]. */
+export function prOverlaps(patterns, { prCache, claims, members, me }) {
+  const out = [];
+  for (const pr of prCache?.open ?? []) {
+    const owner = prOwner(pr, { claims, members });
+    if (owner === me) continue;
+    const files = (pr.files ?? []).map((f) => f.path ?? f).filter((f) => matchesAny(patterns, f));
+    if (files.length) out.push({ pr, owner, files });
+  }
+  return out;
+}
+
 async function writeClaim(dir, claim) {
   const { id, notes, ...data } = claim;
   const file = path.join(dir, claimRel(id));
@@ -72,7 +101,8 @@ export async function findOverlaps(team, paths, { claims, prCache, excludeIds = 
     const hits = c.paths.filter((theirs) => paths.some((mine) => patternsOverlap(mine, theirs, files)));
     if (hits.length) out.push({ claim: c, paths: hits });
   }
-  return out;
+  const prs = prOverlaps(paths, { prCache, claims: all, members: team.members, me: team.me.user });
+  return Object.assign(out, { prs });
 }
 
 /**
@@ -147,7 +177,10 @@ export async function claim(team, opts) {
   const verb = existing ? 'update' : supersedes ? `take over ${supersedes}` : 'claim';
   await commitAndPush(dir, team.remote, [claimRel(id)], `multiplayer: ${me.user} ${verb} ${slug}`);
 
-  const overlaps = await findOverlaps(team, paths, { excludeIds: supersedes ? [supersedes] : [] });
+  const overlaps = await findOverlaps(team, paths, {
+    excludeIds: supersedes ? [supersedes] : [],
+    prCache: await readPrCache(team.root),
+  });
   return { claim: next, status: existing ? 'updated' : supersedes ? 'took-over' : 'created', overlaps, branchCreated };
 }
 

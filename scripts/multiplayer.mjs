@@ -120,6 +120,10 @@ async function runClaim(argv) {
   for (const o of result.overlaps) {
     console.log(`⚠️ Overlaps ${o.claim.user}'s claim "${o.claim.slug}" (${o.claim.task}) on ${o.paths.join(', ')}.`);
   }
+  for (const { pr, owner, files } of result.overlaps.prs ?? []) {
+    const shown = files.slice(0, 3).join(', ') + (files.length > 3 ? `, +${files.length - 3} more` : '');
+    console.log(`⚠️ Overlaps ${owner}'s open PR #${pr.number}${pr.title ? ` (${pr.title})` : ''}, which changes ${shown}.`);
+  }
 }
 
 async function runRelease(argv) {
