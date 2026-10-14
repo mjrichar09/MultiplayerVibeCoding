@@ -1,8 +1,8 @@
 ---
 name: status
-description: Show the team's active claims, recent decisions, unread handoffs, and stale claims, grouped by teammate.
+description: Show every multiplayer claim on the team, grouped by teammate, with stale and merged-PR flags. Use before starting new work to see what teammates are doing, when the briefing says more claims are hidden, or when the user asks what the team is working on.
 argument-hint: "[user]"
-disable-model-invocation: true
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/multiplayer.mjs *)
 ---
 
-**Not implemented yet** — this skill arrives in Phase 2 of `PLAN.md`. Tell the user that `/multiplayer:status` isn't available yet and stop.
+Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/multiplayer.mjs status $ARGUMENTS` and summarize the result for the user. Point out anything that affects the current task: overlapping claims, stale claims in the area, or teammate claims whose PRs already merged.

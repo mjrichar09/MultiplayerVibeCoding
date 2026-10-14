@@ -13,6 +13,7 @@ import {
   git,
   isAttached,
   pull,
+  pushPending,
   remoteHasStateBranch,
   removeStateWorktree,
   repoRoot,
@@ -49,6 +50,7 @@ export async function init({ cwd, create = false, env = process.env, timeout } =
   let status = 'member';
   if (isAttached(root)) {
     await pull(stateDir(root), remote, { timeout });
+    await pushPending(stateDir(root), remote, { timeout });
   } else if (await remoteHasStateBranch(root, remote, { timeout })) {
     await attachStateWorktree(root, remote, { timeout });
     status = 'joined';

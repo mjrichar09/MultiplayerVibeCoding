@@ -4,7 +4,8 @@
 
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 export const STATE_BRANCH = 'multiplayer-state';
@@ -18,16 +19,32 @@ export class GitError extends Error {
   }
 }
 
-export function git(args, { cwd, timeout = 30_000 } = {}) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function gitOnce(args, { cwd, timeout, env }) {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const opts = { cwd, timeout, maxBuffer: 16 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) };
+    execFile('git', args, opts, (err, stdout, stderr) => {
       if (err) reject(new GitError(args, stderr || err.message, err.code));
       else resolve(stdout.trimEnd());
     });
   });
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Another multiplayer process (e.g. the background refresh) may briefly hold
+// the worktree's lock; wait it out instead of failing.
+const LOCKED = /index\.lock|\.lock': File exists|cannot lock ref|unable to create .*\.lock|another git process/i;
+
+export async function git(args, { cwd, timeout = 30_000, env } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await gitOnce(args, { cwd, timeout, env });
+    } catch (err) {
+      if (attempt >= 8 || !LOCKED.test(err.stderr ?? '')) throw err;
+      await sleep(100 * (attempt + 1));
+    }
+  }
+}
 
 /** Project root of the main working tree containing `cwd`, or null if not a git repo. */
 export async function repoRoot(cwd) {
@@ -77,12 +94,22 @@ export async function excludeStateDir(root) {
   await appendFile(file, `${current && !current.endsWith('\n') ? '\n' : ''}${line}\n`);
 }
 
-/** Create a brand-new orphan state branch in the worktree. Does not push. */
-export async function createStateWorktree(root) {
-  const dir = stateDir(root);
-  await git(['worktree', 'add', '--detach', dir], { cwd: root });
-  await git(['checkout', '--orphan', STATE_BRANCH], { cwd: dir });
-  await git(['rm', '-rf', '--quiet', '.'], { cwd: dir });
+/**
+ * Create a brand-new orphan state branch, rooted at an empty commit, and check
+ * it out in the worktree. Built from plumbing so it works in a repo with no
+ * commits yet and on git versions without `worktree add --orphan`. Does not push.
+ */
+export async function createStateWorktree(root, message = 'multiplayer: start') {
+  const scratch = await mkdtemp(path.join(tmpdir(), 'multiplayer-index-'));
+  try {
+    // An index file that doesn't exist yet writes the empty tree.
+    const tree = await git(['write-tree'], { cwd: root, env: { GIT_INDEX_FILE: path.join(scratch, 'index') } });
+    const commit = await git(['commit-tree', tree, '-m', message], { cwd: root });
+    await git(['branch', '--force', STATE_BRANCH, commit], { cwd: root });
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+  await git(['worktree', 'add', '--quiet', stateDir(root), STATE_BRANCH], { cwd: root });
 }
 
 /** Attach the worktree to the existing remote state branch. */
@@ -113,7 +140,7 @@ export async function pull(dir, remote, { timeout } = {}) {
  * exponential backoff when another member pushed first.
  */
 export async function commitAndPush(dir, remote, paths, message, { attempts = 6, baseDelayMs = 150, timeout } = {}) {
-  await git(['add', '--all', '--', ...paths], { cwd: dir });
+  if (paths.length) await git(['add', '--all', '--', ...paths], { cwd: dir });
   const staged = await git(['diff', '--cached', '--name-only'], { cwd: dir });
   if (staged) await git(['commit', '--quiet', '-m', message], { cwd: dir });
 
@@ -130,4 +157,19 @@ export async function commitAndPush(dir, remote, paths, message, { attempts = 6,
     }
   }
   throw lastErr;
+}
+
+/** Push local state commits that an earlier push couldn't deliver (e.g. offline at session end). */
+export async function pushPending(dir, remote, { timeout } = {}) {
+  const ahead = await git(['rev-list', '--count', `${remote}/${STATE_BRANCH}..HEAD`], { cwd: dir }).catch(() => '0');
+  if (Number(ahead) > 0) await commitAndPush(dir, remote, [], 'multiplayer: sync', { timeout });
+}
+
+export async function currentBranch(root) {
+  return git(['branch', '--show-current'], { cwd: root }).catch(() => '');
+}
+
+export async function trackedFiles(root) {
+  const out = await git(['ls-files'], { cwd: root }).catch(() => '');
+  return out ? out.split('\n') : [];
 }

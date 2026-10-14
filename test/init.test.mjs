@@ -46,7 +46,7 @@ test('init is idempotent', async (t) => {
   assert.equal(again.status, 0, again.stderr);
   assert.match(again.stdout, /Already on the team/);
   const log = await alice.git('-C', '.multiplayer', 'log', '--oneline');
-  assert.equal(log.split('\n').length, 2); // create + join, nothing more
+  assert.equal(log.split('\n').length, 3); // empty root + create + join, nothing more
 });
 
 test('the state worktree stays out of the main tree', async (t) => {
@@ -109,12 +109,12 @@ test('session start joins automatically when the team exists', async (t) => {
   const first = await bob.hook('session-start');
   assert.equal(first.status, 0);
   assert.match(first.json.systemMessage, /joined team as bob \(2 members\)/);
-  assert.match(first.json.hookSpecificOutput.additionalContext, /joined this repo's team as "bob"/);
+  assert.match(first.json.hookSpecificOutput.additionalContext, /you are bob · teammates \(1\): alice/);
   assert.equal(first.json.hookSpecificOutput.hookEventName, 'SessionStart');
 
   const second = await bob.hook('session-start');
   assert.equal(second.json.systemMessage, undefined);
-  assert.match(second.json.hookSpecificOutput.additionalContext, /you are "bob".*Team: alice, bob/);
+  assert.match(second.json.hookSpecificOutput.additionalContext, /you are bob/);
 });
 
 test('session start never creates a team, and offers setup only once', async (t) => {
@@ -151,4 +151,15 @@ test('frontmatter round-trips', () => {
 test('usernames are slugified', () => {
   assert.equal(slugify('José  Núñez'), 'jose-nunez');
   assert.equal(slugify('  --Bob--  '), 'bob');
+});
+
+test('a brand-new repository with no commits can be set up and joined', async (t) => {
+  const team = await makeTeam(['alice', 'bob'], { seed: false });
+  t.after(team.cleanup);
+  const { alice, bob } = team.members;
+  const created = await alice.run(['init', '--create']);
+  assert.equal(created.status, 0, created.stderr);
+  const joined = await bob.run(['init']);
+  assert.equal(joined.status, 0, joined.stderr);
+  assert.match(joined.stdout, /Members \(2\): alice, bob/);
 });

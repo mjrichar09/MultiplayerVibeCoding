@@ -68,7 +68,7 @@ Never have two people edit the same state file. Every file is created and only e
 
 ### 2.5 Hook guardrails (non-negotiable)
 - **Fail open:** any error → exit 0 with no output (or a one-line note). Never break a session.
-- **Fast:** SessionStart < 3s in steady state (one `pull`; the one-time auto-join may take longer, hook timeout 15s), PreToolUse < 1s. Network calls cached (TTL ~5 min) with hard timeouts. PreToolUse never touches the network synchronously — it reads local state and caches only.
+- **Fast:** SessionStart < 3s in steady state (one `pull`; the one-time auto-join may take longer, hook timeout 15s), PreToolUse < 1s. Network calls cached (TTL ~5 min) with hard timeouts. PreToolUse never touches the network synchronously — it reads local state and caches only, and at most every 2 minutes starts a detached background `refresh` (pull + PR cache) so teammates' mid-session claims show up on later edits.
 - **Warn, don't block.** (PreToolUse returns `hookSpecificOutput.additionalContext` with no `permissionDecision`.)
 - Never print or commit secrets; never read `.env*`.
 
@@ -196,7 +196,7 @@ Every feature runs automatically or when asked (§2.7); the slash command is the
 
 ### Phase 5 — Sync + templates
 - `/multiplayer:sync` skill (updates `CLAUDE.md` as its own commit), triggered by the briefing's unsynced-decisions flag.
-- `templates/` content: a solid team `CLAUDE.md` skeleton (stack, commands, conventions, "ask before touching" list with owners, link to `.multiplayer/decisions`, and the §2.7 standing rules), shared `settings.json` (secrets guard + destructive-command guard + formatter hooks as *project* hooks), PR template (what/why/how to test/claims released).
+- `templates/` content: a solid team `CLAUDE.md` skeleton (stack, commands, conventions, "ask before touching" list with owners, link to `.multiplayer/decisions`, and the §2.7 standing rules), shared `settings.json` (secrets guard + destructive-command guard + formatter hooks as *project* hooks, and permission rules pre-approving `Skill(multiplayer:*)` and the plugin's CLI so headless/agent sessions can claim without prompts — found in the Phase 2 live test), PR template (what/why/how to test/claims released).
 
 ### Phase 6 — Packaging + dogfood
 - `marketplace.json`, README with 2-minute quickstart for the creator and for each joining member.
