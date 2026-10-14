@@ -41,3 +41,5 @@ Verified against code.claude.com/docs on 2026-10-14 with Claude Code 2.1.299. Wh
 2. Renamed placeholder `duo` → `multiplayer`.
 3. Skills are invoked as `/multiplayer:<skill>`.
 4. Repo root is both the plugin and a single-plugin marketplace (`source: "./"`).
+5. The worktree is ignored through `.git/info/exclude`, not `.gitignore`, so automatic joining never leaves an uncommitted change in the user's project. Per-clone private state that must exist before joining (e.g. "setup already offered") lives in `.git/multiplayer/`.
+6. Creating the orphan branch uses `git worktree add --detach` + `git checkout --orphan` rather than `worktree add --orphan` (git ≥ 2.42 only).

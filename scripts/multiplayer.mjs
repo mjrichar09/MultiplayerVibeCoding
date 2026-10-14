@@ -4,19 +4,45 @@
 // Hook subcommands (`hook <event>`) must fail open: any error exits 0 with no
 // output so a broken plugin never breaks a Claude Code session.
 
+import { sessionStart } from './lib/hooks.mjs';
+import { identity } from './lib/identity.mjs';
+import { init, locate } from './lib/init.mjs';
+import { listMembers } from './lib/state.mjs';
+import { isAttached, stateDir } from './lib/git.mjs';
+
 const HOOKS = {
-  // Phase 0: no-op. Phase 2 renders the team briefing here.
-  'session-start': async (_input) => null,
+  'session-start': sessionStart,
   // Phase 0: no-op. Phase 4 adds the overlap warning here.
   'pre-tool-use': async (_input) => null,
 };
 
 const COMMANDS = {
   hook: runHook,
+  init: runInit,
+  whoami: async () => {
+    const { root } = await locate(process.cwd());
+    const me = await identity(root);
+    console.log(me.user);
+  },
+  members: async () => {
+    const { root } = await locate(process.cwd());
+    if (!isAttached(root)) throw new Error('Not set up here. Run `multiplayer init` first.');
+    for (const m of await listMembers(stateDir(root))) {
+      console.log(`${m.user}${m.active === false ? ' (inactive)' : ''}${m.email ? ` <${m.email}>` : ''}`);
+    }
+  },
   version: async () => {
     console.log('multiplayer 0.0.1');
   },
 };
+
+async function runInit(args) {
+  const create = args.includes('--create');
+  const result = await init({ cwd: process.cwd(), create });
+  const verb = { created: 'Created the team', joined: 'Joined the team', member: 'Already on the team' }[result.status];
+  const team = result.members.map((m) => m.user).join(', ');
+  console.log(`${verb} as "${result.user}". Members (${result.members.length}): ${team}.`);
+}
 
 async function readStdin() {
   if (process.stdin.isTTY) return '';
@@ -47,7 +73,12 @@ async function main(argv) {
     process.exitCode = 1;
     return;
   }
-  await fn(rest);
+  try {
+    await fn(rest);
+  } catch (err) {
+    console.error(`multiplayer: ${err.message}`);
+    process.exitCode = 1;
+  }
 }
 
 main(process.argv.slice(2));

@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/multiplayer.mjs hook session-start",
-            "timeout": 5
+            "timeout": 15
           }
         ]
       }

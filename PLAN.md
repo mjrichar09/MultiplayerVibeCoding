@@ -32,7 +32,7 @@ A team of **N developers** (two or more), each running their own Claude Code ses
 Claims and decisions must be visible to teammates *immediately*, but feature branches aren't. So:
 
 - State lives on an **orphan branch `multiplayer-state`** in the same remote.
-- Locally it's checked out as a **git worktree at `.multiplayer/`** (gitignored in the main tree).
+- Locally it's checked out as a **git worktree at `.multiplayer/`**, kept out of the main tree's `git status` via `.git/info/exclude` (so joining never modifies a tracked file).
 - Scripts `git pull --rebase` before reading and commit + push after writing.
 - No server, no extra repo, works with any GitHub/GitLab remote.
 
@@ -68,7 +68,7 @@ Never have two people edit the same state file. Every file is created and only e
 
 ### 2.5 Hook guardrails (non-negotiable)
 - **Fail open:** any error → exit 0 with no output (or a one-line note). Never break a session.
-- **Fast:** SessionStart < 3s, PreToolUse < 1s. Network calls cached (TTL ~5 min) with hard timeouts. PreToolUse never touches the network synchronously — it reads local state and caches only.
+- **Fast:** SessionStart < 3s in steady state (one `pull`; the one-time auto-join may take longer, hook timeout 15s), PreToolUse < 1s. Network calls cached (TTL ~5 min) with hard timeouts. PreToolUse never touches the network synchronously — it reads local state and caches only.
 - **Warn, don't block.** (PreToolUse returns `hookSpecificOutput.additionalContext` with no `permissionDecision`.)
 - Never print or commit secrets; never read `.env*`.
 
@@ -144,7 +144,7 @@ Every feature runs automatically or when asked (§2.7); the slash command is the
 
 | Feature | Manual command | Behavior |
 |---|---|---|
-| **init** | `/multiplayer:init` | **Joiner path is automatic; creator path runs when asked.** **Creator** (no `multiplayer-state` on remote): creates the orphan branch + `.multiplayer/` worktree, writes `multiplayer.config.json`, registers self in `members/`. **Joiner** (branch exists): attaches the worktree and registers self in `members/`. Both: add `.multiplayer/` to `.gitignore`, scaffold `CLAUDE.md` / `.claude/settings.json` / PR template **only if absent** (otherwise offer a diff). Any number of members can join, in any order, concurrently. |
+| **init** | `/multiplayer:init` | **Joiner path is automatic; creator path runs when asked.** **Creator** (no `multiplayer-state` on remote): creates the orphan branch + `.multiplayer/` worktree, writes `multiplayer.config.json`, registers self in `members/`. **Joiner** (branch exists): attaches the worktree and registers self in `members/`. Both: exclude `.multiplayer/` via `.git/info/exclude`, scaffold `CLAUDE.md` / `.claude/settings.json` / PR template **only if absent** (otherwise offer a diff). Any number of members can join, in any order, concurrently. |
 | **claim** | `/multiplayer:claim <task> [#issue]` | Creates `claims/<user>--<slug>.md` with: task, branch, expected paths/globs (the agent derives them from the task; kept narrow), optional GitHub issue number, started time, notes. Warns, listing **each** teammate whose claim overlaps the paths. Free-text paths are the source of truth; once the claim's branch has an open PR, the PR's actual changed files are also checked (catches paths the claim missed). `--takeover <user>/<slug>` supersedes a stale claim (§2.6). |
 | **release** | `/multiplayer:release [slug]` | Deletes my claim; one-line outcome appended to `history/<user>.md`. Automatic on PR merge (PostToolUse hook) and at SessionStart for PRs merged elsewhere, unless the claim has `keep: true`. |
 | **status** | `/multiplayer:status [user]` | Renders, grouped by teammate: active claims, decisions in last 14 days, unread handoffs to me, recent notes, stale claims (> N days). Optional filter to one teammate. |
