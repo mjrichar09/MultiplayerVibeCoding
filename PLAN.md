@@ -76,7 +76,7 @@ Never have two people edit the same state file. Every file is created and only e
 - **Briefing size:** the SessionStart briefing has a hard cap (~40 lines) regardless of team size. It prioritizes, in order: handoffs addressed to me → claims overlapping my current branch/claims → new decisions → other teammates' claims grouped per person, most recent first. Anything past the cap collapses to a summary line (`+7 more claims from carol, dan, erin — run /multiplayer:status`).
 - **Overlap warnings** list *every* teammate whose claim or open PR touches the file, not just the first match.
 - **Inactive members** (left the team, or no activity in N days, configurable) are hidden from briefings but their claims still show as stale.
-- **Stale claims:** only the owner deletes their claim. Others see stale claims flagged in `/status` and the briefing; `/release --stale <user>/<slug>` is out of scope for v1 (see §7).
+- **Stale claims:** a claim with no activity for `staleClaimDays` (default **3**, set in `multiplayer.config.json`) is flagged as stale in `/status` and the briefing. Only the owner deletes their claim. A teammate who needs the area runs `/multiplayer:claim --takeover <user>/<slug>`, which creates *their own* claim that supersedes the stale one (`supersedes:` in frontmatter). Warnings then point to the new owner, the original file is untouched (one-writer rule holds), and the original owner's next briefing says who took it over. Takeover of a non-stale claim is refused.
 
 ---
 
@@ -118,7 +118,7 @@ The repo root is the plugin, and also a single-plugin marketplace.
 | Feature | Trigger | Behavior |
 |---|---|---|
 | **init** | `/multiplayer:init` | **Creator** (no `multiplayer-state` on remote): creates the orphan branch + `.multiplayer/` worktree, writes `multiplayer.config.json`, registers self in `members/`. **Joiner** (branch exists): attaches the worktree and registers self in `members/`. Both: add `.multiplayer/` to `.gitignore`, scaffold `CLAUDE.md` / `.claude/settings.json` / PR template **only if absent** (otherwise offer a diff). Any number of members can join, in any order, concurrently. |
-| **claim** | `/multiplayer:claim <task>` | Creates `claims/<user>--<slug>.md` with: task, branch, expected paths/globs, started time, notes. Warns, listing **each** teammate whose claim overlaps the paths. |
+| **claim** | `/multiplayer:claim <task> [#issue]` | Creates `claims/<user>--<slug>.md` with: task, branch, expected paths/globs (Claude proposes them from the task, user confirms), optional GitHub issue number, started time, notes. Warns, listing **each** teammate whose claim overlaps the paths. Free-text paths are the source of truth; once the claim's branch has an open PR, the PR's actual changed files are also checked (catches paths the claim missed). `--takeover <user>/<slug>` supersedes a stale claim (§2.6). |
 | **release** | `/multiplayer:release [slug]` | Deletes my claim; optional one-line outcome appended to `history/<user>.md`. Auto-suggested after PR merge. |
 | **status** | `/multiplayer:status [user]` | Renders, grouped by teammate: active claims, decisions in last 14 days, unread handoffs addressed to me or `all`, stale claims (> N days). Optional filter to one teammate. |
 | **decide** | `/multiplayer:decide <summary>` | Claude drafts an ADR (context, decision, consequences, alternatives) from the current conversation, user confirms, file written + pushed. Visible to every member. |
@@ -184,8 +184,11 @@ The repo root is the plugin, and also a single-plugin marketplace.
 ---
 
 ## 7. Open questions (ask Mark before deciding)
-1. Claim granularity: free-text paths/globs, or tie claims to GitHub Issues?
-2. Should `/release` happen automatically when a PR merges (needs a GitHub Action), or stay manual in v1?
-3. Should a member be able to release someone else's stale claim (e.g. a teammate on vacation), or stay owner-only in v1?
-4. Handoff default when no recipient is given: ask, or default to `all`?
-5. Public open-source from day one, or private until dogfooded?
+1. Should `/release` happen automatically when a PR merges (needs a GitHub Action), or stay manual in v1?
+2. Handoff default when no recipient is given: ask, or default to `all`?
+
+## 8. Decisions log
+- **Name:** `multiplayer`.
+- **Claim granularity:** free-text paths/globs plus an optional GitHub issue number; open-PR changed files are also used for overlap.
+- **Stale claims:** default 3 days, configurable; teammates use `--takeover` (supersede, never delete someone else's claim).
+- **Visibility:** private until dogfooded.
