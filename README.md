@@ -49,6 +49,36 @@ claude plugin install multiplayer@multiplayer-vibe-coding
 
 Whatever the setup, your own agents are warned when they edit the same file as each other.
 
+## Using several apps and devices
+
+You can mix the Claude Code terminal, the desktop app, cloud sessions, and Remote Control on the same repo.
+
+| How you work | What happens |
+|---|---|
+| **One after another** (finish in one app, continue in another) | Works with nothing to do. Commit and push before switching machines, so the next session can pick up your branch. |
+| **Terminal and desktop app on the same folder at the same time** | Both sessions share one checkout. The plugin notices, pauses its automatic git steps until one ends, and warns if both edit the same file. For real parallel work, give each its own worktree (`multiplayer worktree "<task>"`). |
+| **Remote Control** (driving a local session from your phone or browser) | The session still runs on your machine in your folder, so it behaves exactly like a local session. |
+| **Cloud sessions** (Claude Code on the web, or started from the mobile app) | A separate copy of the repo in the cloud. Two things to know: (1) cloud sessions commit as a shared "Claude" identity, so set `MULTIPLAYER_USER` to your team username in the cloud environment's environment variables. Until you do, multiplayer stays paused there and says so. (2) The cloud assigns each session its own branch, so the plugin claims work on that branch instead of starting one. |
+| **The same person on two machines at once** (e.g. laptop plus a cloud session) | Claims record which machine or session made them. Editing a file your other session has claimed warns you: if that session is still running, coordinate; if it's finished, make sure its work was pushed. |
+
+## Deploying safely: keep "merged" separate from "live"
+
+Agents merge PRs once their checks pass. That's safe as long as **merging to `main` doesn't put code in front of customers by itself.**
+
+**Why automatic deploys from `main` are a concern:** if every merge deploys straight to production, a bad merge is live within minutes. A revert fixes the code, but not what already happened: database migrations that ran, emails that went out, data that changed. With several agents merging through the day, production would change more often than anyone is watching.
+
+**Preferred setups** (pick one):
+
+1. **Manual production deploys.** `main` deploys automatically to a *staging* site, where you can try changes. Production needs a person's one-click approval: a GitHub Actions environment with a required reviewer, or your host's built-in "promote to production" (Vercel, Netlify, and most platforms have one).
+2. **A release branch or tags.** Production deploys only from a `release` branch or a version tag that a person creates when they choose to ship. `main` stays the place where finished work comes together.
+
+**If `main` must deploy straight to production:** don't let agents merge on their own. Remove `Bash(gh pr merge *)` from the `allow` list in `.claude/settings.json` (or move it to `ask`), so a person approves each merge.
+
+**Either way:**
+- **Turn on branch protection** (`multiplayer protect`) so failing checks can't merge.
+- **Write database migrations that can be undone:** add new tables and columns first, and remove old ones in a later release.
+- **Require reviews on risky areas** like payments or infrastructure with GitHub code owners, so everything else keeps flowing.
+
 ## Develop
 
 ```

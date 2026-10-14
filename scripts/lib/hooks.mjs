@@ -25,10 +25,11 @@ import { STATE_DIR, currentBranch, git, isAttached, localDir, remoteHasStateBran
 import { prChecks, prView, prs, readPrCache } from './gh.mjs';
 import { identity } from './identity.mjs';
 import { InitError, init, locate } from './init.mjs';
+import { IdentityError } from './identity.mjs';
 import { readConfig } from './state.mjs';
 import { openTeam } from './team.mjs';
 import { matchesAny } from './glob.mjs';
-import { ago, now } from './util.mjs';
+import { ago, cloneId, now } from './util.mjs';
 import {
   checkoutHandedBranch,
   cleanupMergedBranch,
@@ -93,7 +94,17 @@ export async function sessionStart(input, { env = process.env } = {}) {
     );
   }
 
-  const joined = await init({ cwd: root, env, timeout });
+  let joined;
+  try {
+    joined = await init({ cwd: root, env, timeout });
+  } catch (err) {
+    if (!(err instanceof IdentityError)) throw err;
+    // e.g. a cloud session committing as "Claude": say so once, don't guess a name.
+    const marker = path.join(await localDir(root), 'identity-warned');
+    if (existsSync(marker)) return null;
+    await writeFile(marker, `${new Date().toISOString()}\n`);
+    return output('SessionStart', `multiplayer is paused in this session: ${err.message} Tell the user this once.`);
+  }
   const team = await openTeam(root, { env, sync: false });
   const prCache = await prs(root, { env });
   const at = now(env);
@@ -206,6 +217,7 @@ export async function sessionStart(input, { env = process.env } = {}) {
     lastSeen: lastSeen?.at,
     events,
     role,
+    cloneId: cloneId(await localDir(root)),
   });
   await writeLocal(root, 'last-seen.json', { at: at.toISOString() });
   const shownToMe = handoffs.filter((h) => h.to?.includes(team.me.user)).map((h) => h.id);
@@ -430,6 +442,19 @@ export async function preToolUse(input, { env = process.env } = {}) {
     const who = [...byOwner].map(([owner, whats]) => `${owner} (${list(whats)})`).join(' and ');
     messages.push(`⚠️ multiplayer: ${who} ${byOwner.size > 1 ? 'are' : 'is'} working on ${rel}. Confirm with ${askWho} before proceeding.`);
     seen.warned.push(rel);
+  }
+
+  // My own claim made from another clone (another machine, or a cloud session).
+  const myClone = cloneId(await localDir(root));
+  const elsewhere = active.filter((c) => c.user === me.user && c.clone && c.clone !== myClone && covers(c, rel));
+  if (elsewhere.length && !role && !seen.warned.includes(`elsewhere:${rel}`)) {
+    const c = elsewhere[0];
+    messages.push(
+      `multiplayer: ${rel} is in your own claim "${c.slug}" from your session on ${c.device ?? 'another machine'} ` +
+        `(branch ${c.branch || 'unknown'}, updated ${ago(c.updated ?? c.started, at)}). If that session is still running, ` +
+        `check with the user before editing here; if it's finished, make sure its work was pushed (branch ${c.branch || 'unknown'}) and build on it.`,
+    );
+    seen.warned.push(`elsewhere:${rel}`);
   }
 
   const mine = active.some((c) => c.user === me.user && covers(c, rel));

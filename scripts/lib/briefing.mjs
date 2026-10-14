@@ -45,6 +45,7 @@ function describeClaim(c, ctx) {
   if (pending) flags.push(`handing off to ${pending.to.join(', ')}`);
   const pr = mergedPr(c, ctx.prCache);
   if (pr) flags.push(`PR #${pr.number} merged${c.keep ? ', kept open' : ''}`);
+  if (c.user === ctx.me && ctx.cloneId && c.clone && c.clone !== ctx.cloneId) flags.push(`from your session on ${c.device ?? 'another machine'}`);
   const quiet = `for ${ago(c.updated ?? c.started, ctx.at).replace(/ ago$/, '')}`;
   if (isStale(c, ctx.config, ctx.at)) {
     flags.push(c.user === ctx.me ? `STALE, no activity ${quiet}: finish it, release it, or offer a handoff` : `STALE, no activity ${quiet}`);

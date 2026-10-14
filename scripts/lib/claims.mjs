@@ -11,7 +11,8 @@ import { readPrCache } from './gh.mjs';
 import { matchesAny, normalizePattern, patternsOverlap } from './glob.mjs';
 import { slugify } from './identity.mjs';
 import { formatFrontmatter, parseFrontmatter } from './state.mjs';
-import { DAY_MS, now } from './util.mjs';
+import { DAY_MS, cloneId, deviceLabel, isCloudSession, now } from './util.mjs';
+import { localDir } from './git.mjs';
 
 export const claimId = (user, slug) => `${user}--${slug}`;
 const claimRel = (id) => path.posix.join('claims', `${id}.md`);
@@ -148,7 +149,8 @@ export async function claim(team, opts) {
   let branchCreated = false;
   if (!existing) {
     if (opts.handoff?.branch) branch = opts.handoff.branch;
-    else if (opts.noBranch || config.autoBranch === false) branch = await currentBranch(team.root);
+    // Cloud sessions are assigned their branch by the environment; work on it.
+    else if (opts.noBranch || config.autoBranch === false || isCloudSession(team.env)) branch = await currentBranch(team.root);
     else {
       const baseBranch = await defaultBranch(team.root, team.remote, config);
       const started = await startTaskBranch(team.root, team.remote, baseBranch, `${me.user}/${slug}`);
@@ -170,6 +172,8 @@ export async function claim(team, opts) {
     handoff: opts.handoff?.id ?? existing?.handoff,
     started: existing?.started ?? at,
     updated: at,
+    device: deviceLabel(team.env),
+    clone: cloneId(await localDir(team.root)),
     leftOff: existing?.leftOff,
     notes: [existing?.notes, opts.notes].filter(Boolean).join('\n\n'),
   };

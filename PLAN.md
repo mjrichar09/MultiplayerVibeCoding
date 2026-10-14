@@ -270,3 +270,6 @@ _None open._
 - **Automation:** every action runs automatically or when asked (handoff, creating the state branch); slash commands are only a manual override (§2.7).
 - **Git workflow:** agents run a merge-only, branch-per-task workflow (§2.8) so inexperienced users never manage git themselves.
 - **Parallel agents:** worktrees share team state; an orchestrator lead owns git and claims while workers only edit (subagents detected automatically, Orca-style sessions marked with `multiplayer worker`); unmanaged sessions in one folder pause automatic git steps until the others end (§2.9).
+- **Deploys:** the preferred setup keeps merging separate from releasing: either manual (approved) production deploys with `main` going to staging, or production deploys from a release branch or tags. If `main` must deploy straight to production, merges need human approval (README "Deploying safely").
+- **Devices and cloud sessions:** cloud sessions (`CLAUDE_CODE_REMOTE=true`) commit as a shared "Claude <noreply@anthropic.com>" identity, so multiplayer pauses there until `MULTIPLAYER_USER` is set, and shared identities never take part in email collision checks. Cloud sessions claim on their assigned branch instead of starting one. Claims record `device` and `clone`, so the same person's sessions on different machines warn each other about their own claims.
+

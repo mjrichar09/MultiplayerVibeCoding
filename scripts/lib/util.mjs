@@ -1,5 +1,26 @@
 // Small shared helpers.
 
+import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
+import path from 'node:path';
+
+export const isCloudSession = (env = process.env) => env.CLAUDE_CODE_REMOTE === 'true';
+
+/** A human label for where this session runs, e.g. "mark-laptop" or "a cloud session". */
+export function deviceLabel(env = process.env) {
+  return env.MULTIPLAYER_DEVICE || (isCloudSession(env) ? 'a cloud session' : hostname());
+}
+
+/** A stable random id for this clone (shared by its worktrees), kept in `localDir`. */
+export function cloneId(localDir) {
+  const file = path.join(localDir, 'clone-id');
+  if (existsSync(file)) return readFileSync(file, 'utf8').trim();
+  const id = randomBytes(6).toString('hex');
+  writeFileSync(file, `${id}\n`);
+  return id;
+}
+
 /** Current time; MULTIPLAYER_NOW (ISO) overrides it for tests. */
 export function now(env = process.env) {
   return env.MULTIPLAYER_NOW ? new Date(env.MULTIPLAYER_NOW) : new Date();
