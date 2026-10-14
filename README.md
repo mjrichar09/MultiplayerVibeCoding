@@ -1,10 +1,46 @@
 # MultiplayerVibeCoding
 
-This structures a repo so that a team can work together on a project seamlessly using agents.
+**multiplayer** is a Claude Code plugin for teams of any size working on one repo with AI agents. Each person's Claude knows what teammates are working on, what's been decided, and what was handed off. Git runs itself in a safe, merge-only way, so people who aren't git experts can just describe tasks. There's no server: everything is shared through a branch in your repo.
 
-It ships **multiplayer**, a Claude Code plugin that adds an async coordination layer for a team of any size working on one repo: each person's Claude knows what teammates have claimed, what's been decided, and what was handed off — without a server.
+> Status: version 0.1.0, ready for a first trial with a real team (see [`docs/dogfood.md`](docs/dogfood.md)). Design and history: [`PLAN.md`](PLAN.md).
 
-> Status: Phases 0–5 of [`PLAN.md`](PLAN.md) are done. Next: packaging polish and a trial run with a real team (Phase 6).
+## Quickstart
+
+**You need:** Claude Code (tested with 2.1.299), Node.js 18+, git, and a repo on GitHub (or any git host) that everyone can push to. Optional: the [GitHub CLI](https://cli.github.com/) (`gh auth login`) for PR-based features. While this plugin's repo is private, every teammate needs read access to `mjrichar09/MultiplayerVibeCoding` to install it.
+
+### One person sets up the team (about 2 minutes)
+
+1. Install the plugin in Claude Code:
+   ```
+   /plugin install multiplayer --marketplace mjrichar09/MultiplayerVibeCoding
+   ```
+   (Older Claude Code: `claude plugin marketplace add mjrichar09/MultiplayerVibeCoding`, then `claude plugin install multiplayer@multiplayer-vibe-coding`.)
+2. Open Claude Code in your project and say: **"Set up multiplayer for this repo."**
+   Claude creates the team and opens a **team-setup PR**: a team `CLAUDE.md` filled in from your repo, shared settings, and a PR template. It also offers to turn on branch protection.
+3. Review and merge the team-setup PR. Fill in the "Ask before touching" section of `CLAUDE.md` when you get a chance.
+
+### Everyone else joins (about 1 minute)
+
+1. Pull the repo after the setup PR merges, and open Claude Code in it. Accept the "trust this folder" prompt: that turns on the shared settings and offers you the plugin. Install it if asked, or with the command above.
+2. Start a new session. You join the team automatically and see what everyone is working on.
+
+### Check that it's working
+
+Ask Claude **"Is multiplayer working?"** (or run `multiplayer doctor`). It checks git, the remote, your username, the team, permission to share claims, the GitHub CLI, and branch protection, and says how to fix anything missing.
+
+### What you can say
+
+You never need commands; agents claim, branch, update, record, and clean up on their own. Things worth knowing you can ask for:
+
+| Say | What happens |
+|---|---|
+| "What's the team working on?" | Everyone's claims, recent decisions, and notes |
+| "Hand this to Bob" | Your work, branch, and notes go to Bob; his next session picks them up |
+| "We decided to … — record that" | A short decision record every teammate's Claude will see |
+| "Tell the team that …" | A team note shown at everyone's next session start |
+| "Bring my branch up to date" | Merges the latest `main` in and resolves conflicts with you |
+| "Undo PR #42" | A revert PR, plus a note to the team |
+| "Split this across parallel agents" | Worker agents in their own worktrees, merged back by the lead |
 
 ## How it works
 
@@ -24,19 +60,6 @@ It ships **multiplayer**, a Claude Code plugin that adds an async coordination l
 - **Handoffs when you ask.** "Bob is taking over checkout" makes the agent commit, push the branch, and write a handoff. Bob's next session accepts the claim, switches to the branch if he's free, and starts with the notes.
 - **Merging is guarded.** Agents merge only after a PR's checks pass. They're warned if checks are failing, still running, or missing. `multiplayer protect` turns on GitHub branch protection, so failing PRs can't merge at all. To undo a merged PR, ask for it ("revert #42"): the agent opens a revert PR and tells the team. Later work is kept.
 - **Git runs itself.** Each task gets its own branch from the latest `main`. Branches are kept current by merging `main` in (never rebasing), automatically at session start when that's safe. Conflicts are resolved by the agent, which asks you only when both sides changed the same logic. After a PR merges, you're switched back to an updated `main` and the old branch is deleted. Nothing automatic ever runs if it could lose work.
-
-## Install
-
-```
-/plugin install multiplayer --marketplace mjrichar09/MultiplayerVibeCoding
-```
-
-Or, on older Claude Code versions:
-
-```
-claude plugin marketplace add mjrichar09/MultiplayerVibeCoding
-claude plugin install multiplayer@multiplayer-vibe-coding
-```
 
 ## Running several agents at once
 
@@ -78,6 +101,30 @@ Agents merge PRs once their checks pass. That's safe as long as **merging to `ma
 - **Turn on branch protection** (`multiplayer protect`) so failing checks can't merge.
 - **Write database migrations that can be undone:** add new tables and columns first, and remove old ones in a later release.
 - **Require reviews on risky areas** like payments or infrastructure with GitHub code owners, so everything else keeps flowing.
+
+## Troubleshooting
+
+Start with **"Is multiplayer working?"** (`multiplayer doctor`). Common cases:
+
+- **Nothing about the team appears at session start:** the repo isn't set up yet, the plugin isn't installed or enabled, or you haven't accepted the "trust this folder" prompt.
+- **"multiplayer is paused in this session":** this session commits as a shared identity (e.g. a cloud session). Set `MULTIPLAYER_USER` to your team username in that environment.
+- **"Sharing claims ✗ can't push multiplayer-state":** you need write access to the repo, and some cloud environments only allow pushing a session's own branch.
+- **PR warnings, merge checks, or release-on-merge don't happen:** they need `gh` installed and signed in, and they're off in Claude Code cloud sessions, which block the GitHub API `gh pr` uses. Claims, the summary, and everything else still work.
+- **An agent keeps asking permission for git or multiplayer commands:** the team-setup PR's `.claude/settings.json` pre-approves them; make sure it's merged and the folder is trusted.
+
+## Configuration
+
+Team settings live in `.multiplayer/multiplayer.config.json` (on the shared branch; ask Claude to change one and push it):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `staleClaimDays` | `3` | Days without activity before a claim counts as stale and can be taken over |
+| `noteDays` | `3` | Days a team note stays in the summary |
+| `autoBranch` | `true` | Start a task branch when claiming on the default branch |
+| `autoUpdate` | `true` | Merge `main` into task branches and clean up merged branches automatically |
+| `defaultBranch` | auto | Override the detected default branch |
+
+Per-person environment variables: `MULTIPLAYER_USER` (your team username; required in cloud sessions), `MULTIPLAYER_DEVICE` (a name for this machine in claims), `MULTIPLAYER_ROLE=worker` (a session that leaves git to its lead).
 
 ## Develop
 

@@ -4,6 +4,13 @@
 // is missing, like an unauthenticated gh.
 import { readFileSync, writeFileSync } from 'node:fs';
 
+if (process.argv[2] === '--version') process.exit(0);
+if (process.argv[2] === 'auth') process.exit(process.env.FAKE_GH_UNAUTH ? 1 : 0);
+if (process.env.FAKE_GH_UNAUTH) process.exit(4);
+if (process.env.FAKE_GH_NO_GRAPHQL && process.argv[2] === 'pr') {
+  process.stderr.write('HTTP 403: GitHub GraphQL is not available from Claude Code sessions\n');
+  process.exit(1);
+}
 if (process.env.FAKE_GH_GARBAGE) {
   process.stdout.write('this is not json');
   process.exit(0);
@@ -46,6 +53,13 @@ if (args[0] === 'pr' && args[1] === 'list') {
     }
     const input = readFileSync(args[args.indexOf('--input') + 1], 'utf8');
     writeFileSync(`${process.env.FAKE_GH_FIXTURE}.protection.json`, JSON.stringify({ url, body: JSON.parse(input) }));
+    process.stdout.write('{}');
+  } else if (url && /^repos\/[^/]+\/[^/]+$/.test(url)) {
+    if (!fixture.repo) process.exit(1);
+    const perm = fixture.repo.viewerPermission;
+    process.stdout.write(JSON.stringify({ full_name: fixture.repo.nameWithOwner, permissions: { admin: perm === 'ADMIN', push: perm !== 'READ' } }));
+  } else if (url?.endsWith('/protection')) {
+    if (!fixture.protected) process.exit(1);
     process.stdout.write('{}');
   } else if (url?.includes('/check-runs')) {
     process.stdout.write(JSON.stringify({ check_runs: (fixture.mainChecks ?? []).map((name) => ({ name })) }));

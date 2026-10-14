@@ -18,6 +18,7 @@ import { activeSessions, setWorker, workerRole } from './lib/sessions.mjs';
 import { collectWorktree, createWorktree } from './lib/parallel.mjs';
 import { scaffold, syncClaudeMd } from './lib/docs.mjs';
 import { protectDefaultBranch, revertChange } from './lib/safety.mjs';
+import { doctor, formatDoctor } from './lib/doctor.mjs';
 import { openTeam } from './lib/team.mjs';
 import { now, splitList } from './lib/util.mjs';
 import { currentBranchOrNull, defaultBranch, fastForwardLocal, fetchDefault, mergeDefault } from './lib/workflow.mjs';
@@ -46,6 +47,11 @@ const COMMANDS = {
   sync: runSync,
   scaffold: runScaffold,
   protect: runProtect,
+  doctor: async () => {
+    const results = await doctor(process.cwd());
+    console.log(formatDoctor(results));
+    if (results.some((r) => r.status === 'fail')) process.exitCode = 1;
+  },
   revert: runRevert,
   // Background refresh started by the PreToolUse hook: pull state, refresh the
   // PR cache, and fetch the default branch (refs only; never touches files).
@@ -70,7 +76,7 @@ const COMMANDS = {
     }
   },
   version: async () => {
-    console.log('multiplayer 0.0.1');
+    console.log('multiplayer 0.1.0');
   },
 };
 
