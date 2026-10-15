@@ -1,12 +1,20 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "multiplayer-vibe-coding",
   "description": "Plugins for teams vibe coding together on one repo.",
-  "owner": { "name": "mjrichar09" },
+  "owner": { "name": "mjrichar09", "url": "https://github.com/mjrichar09" },
   "plugins": [
     {
       "name": "multiplayer",
+      "displayName": "Multiplayer",
       "source": "./",
-      "description": "Async coordination for teams of any size running Claude Code on one repo."
+      "description": "Async coordination for teams of any size running Claude Code on one repo: claims, decisions, handoffs, and overlap warnings.",
+      "category": "collaboration",
+      "tags": ["team", "git", "coordination", "handoff", "pull-requests"],
+      "author": { "name": "mjrichar09", "url": "https://github.com/mjrichar09" },
+      "homepage": "https://github.com/mjrichar09/MultiplayerVibeCoding#readme",
+      "repository": "https://github.com/mjrichar09/MultiplayerVibeCoding",
+      "license": "MIT"
     }
   ]
 }

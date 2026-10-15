@@ -14,15 +14,17 @@ You keep working the way you already do: describe what you want, and Claude does
    ```
    /plugin install multiplayer --marketplace mjrichar09/MultiplayerVibeCoding
    ```
+   When it asks where to install, choose **"Install for all collaborators on this repository (project scope)"**, so your teammates are offered the plugin automatically.
+
    If that doesn't work on your version, run these two lines in a terminal instead:
    ```
    claude plugin marketplace add mjrichar09/MultiplayerVibeCoding
-   claude plugin install multiplayer@multiplayer-vibe-coding
+   claude plugin install multiplayer@multiplayer-vibe-coding --scope project
    ```
 2. **Open Claude Code in your project and say:**
    > Set up multiplayer for this repo.
 3. **Review and merge the "team setup" pull request** Claude opens. It adds:
-   - a team `CLAUDE.md`, the project briefing every agent reads (Claude fills in what it can);
+   - a team `CLAUDE.md`, the project briefing every agent reads (Claude fills in what it can), including a "Getting set up" section for new teammates;
    - shared settings that turn on the plugin for teammates and block risky git commands;
    - a pull request template.
 4. **Say yes if Claude offers branch protection.** It makes GitHub refuse to merge anything whose tests fail.
@@ -31,8 +33,9 @@ You keep working the way you already do: describe what you want, and Claude does
 ### If you're joining a team
 
 1. **Pull the latest code and open Claude Code in the project.**
-2. **Accept the "trust this folder" prompt.** This turns on the team's shared settings and offers you the plugin. Install it if asked, or use the install command above.
+2. **Accept the "trust this folder" prompt.** This turns on the team's shared settings and offers you the plugin. Install it if asked (choose project scope), or use the install command above.
 3. **Start a new session.** You join the team automatically. The first thing Claude shows is who's on the team and what they're working on.
+4. **Get set up to run the project.** On your first session, Claude reads the "Getting set up" section of `CLAUDE.md` and helps you install whatever's missing (tools, environment variables, access).
 
 ### Check that it's working
 
@@ -72,12 +75,12 @@ alice (1):
 - If a teammate's finished work lands in files you're using, Claude **merges it in** at a good moment, sorting out any conflicts with you.
 
 **4. You're done.** Claude pushes the work and opens a **pull request**.
-- Once the PR's checks pass (and your team approves, if you require that), it's merged.
+- Once the PR's checks pass (and your team approves, if you require that), Claude merges it.
 - Your claim is **released**, the old branch is **cleaned up**, and you're back on the latest code, ready for the next task.
 
 **5. Along the way, things worth sharing get shared:**
 - When you and Claude **settle a design choice**, it's recorded as a team decision.
-- When Claude learns something teammates need, like a broken setup step, it posts a **team note**.
+- When Claude learns something teammates need, like a broken setup step, it posts a **team note**. If it's a setup step every newcomer will need, it's also added to `CLAUDE.md`'s "Getting set up" section, since notes fade after a few days.
 - Both show up in teammates' summaries at their next session.
 
 ---
@@ -149,7 +152,7 @@ Claude will also **suggest a handoff** when you mention you're going away or are
 |---|---|
 | No team summary at session start | Plugin not installed or enabled, folder not trusted, or the repo isn't set up yet |
 | "multiplayer is paused in this session" | Cloud session without `MULTIPLAYER_USER` |
-| Claude keeps asking permission for git commands | The team-setup pull request isn't merged yet, or the folder isn't trusted |
+| Claude keeps asking permission for git commands, or can't merge in auto mode | The team-setup pull request isn't merged yet, or the folder isn't trusted |
 | No warnings about teammates' pull requests | The GitHub CLI isn't installed or signed in (`gh auth login`). Claim warnings still work without it. |
 
 3. Still stuck? See [Troubleshooting](../README.md#troubleshooting) in the README.

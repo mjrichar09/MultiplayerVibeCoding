@@ -18,8 +18,8 @@ export const STANDING_RULES = [
   'How to work with your team (multiplayer plugin) — mention each multiplayer action to the user in one line:',
   '- Claim before your first edit on a new task (multiplayer:claim, narrow paths); extend the claim if the work grows. Ask the user before editing files a teammate has claimed.',
   '- Git: commit at checkpoints; work only on your task branch; never force-push, rebase, or commit to the default branch. If told the default branch changed your files, commit and use multiplayer:update.',
-  '- When done: push and open a PR. Merge (squash) only after all its checks pass (or use GitHub auto-merge so it waits); if checks fail, fix them or tell the user. The claim and branch clean up automatically. To undo a merged PR, use multiplayer:revert.',
-  '- Record settled design choices with multiplayer:decide (the user agreed, or an alternative was rejected for a reason). Post things teammates need (broken setup, flaky test, changed command) with multiplayer:note.',
+  '- When done: push and open a PR. Once its checks pass, merge it with `multiplayer merge` (it refuses failing or running checks and cleans up the claim and branch); if checks fail, fix them or tell the user. To undo a merged PR, use multiplayer:revert.',
+  '- Record settled design choices with multiplayer:decide (the user agreed, or an alternative was rejected for a reason). Post things teammates need (broken setup, flaky test, changed command) with multiplayer:note. A setup step every newcomer will need (a tool to install, an env var, access to request) also goes in CLAUDE.md\'s "Getting set up" section on your branch, because notes fade after a few days.',
   '- If the user says they will be away, are stopping for a while, are stuck, or someone else should continue, offer a handoff to a fitting teammate (e.g. one with related claims). Use multiplayer:handoff only if they agree.',
   '- Delegating? Claim the whole task first and give each worker distinct files; workers leave git and claims to you. Subagents need nothing more; for parallel sessions (Orca, herdr, terminals) use multiplayer:delegate.',
 ];

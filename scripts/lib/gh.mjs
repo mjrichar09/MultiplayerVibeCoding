@@ -50,6 +50,7 @@ function toPr(p) {
     title: p.title,
     headRefName: p.head?.ref,
     headRefOid: p.head?.sha,
+    headRepo: p.head?.repo?.full_name ?? null,
     author: { login: p.user?.login },
     mergedAt: p.merged_at ?? null,
     state: p.merged_at ? 'MERGED' : String(p.state ?? '').toUpperCase(),

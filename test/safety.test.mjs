@@ -62,7 +62,7 @@ test('the standing rules tell agents to merge only on green checks and how to re
   const team = await setup(['alice']);
   t.after(team.cleanup);
   const ctx = context(await team.members.alice.hook('session-start'));
-  assert.match(ctx, /Merge \(squash\) only after all its checks pass/);
+  assert.match(ctx, /Once its checks pass, merge it with `multiplayer merge`/);
   assert.match(ctx, /multiplayer:revert/);
 });
 
