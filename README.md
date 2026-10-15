@@ -2,6 +2,8 @@
 
 **multiplayer** is a Claude Code plugin for teams of any size working on one repo with AI agents. Each person's Claude knows what teammates are working on, what's been decided, and what was handed off. Git runs itself in a safe, merge-only way, so people who aren't git experts can just describe tasks. There's no server: everything is shared through a branch in your repo.
 
+> **New here? Read the [guide](docs/GUIDE.md)**: how multiplayer works and how to get started, in plain language.
+>
 > Status: version 0.1.0, ready for a first trial with a real team (see [`docs/dogfood.md`](docs/dogfood.md)). Design and history: [`PLAN.md`](PLAN.md).
 
 ## Quickstart
