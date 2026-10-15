@@ -6,11 +6,11 @@
 >
 > Sharing it outside the team, running your own copy, or cutting a release: see [`docs/PUBLISHING.md`](docs/PUBLISHING.md).
 >
-> Status: version 0.2.0, in a first trial with a real team (see [`docs/dogfood.md`](docs/dogfood.md)). Design and history: [`PLAN.md`](PLAN.md).
+> Status: version 0.3.0, in a first trial with a real team (see [`docs/dogfood.md`](docs/dogfood.md)). Design and history: [`PLAN.md`](PLAN.md).
 
 ## Quickstart
 
-**You need:** Claude Code (tested with 2.1.299), Node.js 18+, git, and a repo on GitHub (or any git host) that everyone can push to. Optional: the [GitHub CLI](https://cli.github.com/) (`gh auth login`) for PR-based features. While this plugin's repo is private, every teammate needs read access to `mjrichar09/MultiplayerVibeCoding` to install it.
+**You need:** Claude Code (tested with 2.1.299; the team panel needs 2.1.287 or later), Node.js 18+, git, and a repo on GitHub (or any git host) that everyone can push to. Optional: the [GitHub CLI](https://cli.github.com/) (`gh auth login`) for PR-based features. While this plugin's repo is private, every teammate needs read access to `mjrichar09/MultiplayerVibeCoding` to install it.
 
 ### One person sets up the team (about 2 minutes)
 
@@ -57,6 +57,8 @@ You never need commands; agents claim, branch, update, record, and clean up on t
   Existing files are extended, never overwritten. The settings apply once each person accepts Claude Code's "trust this folder" prompt for the repo.
 - **Everyone else joins automatically** the first time they start a Claude Code session in the repo.
 - **Agents claim work** before their first edit, with narrow file paths. Every session starts with a briefing of who has claimed what.
+- **The team panel is always visible.** Above the prompt, a small band lists everyone's open work (who, what, which files, how recently), plus handoffs for you and recent notes. It refreshes after each turn and pulls teammates' changes every minute. Type `/team-board` for a fuller pane. It shows in the terminal and the desktop app's Code tab (Claude Code 2.1.287 or later), not in the VS Code chat panel or cloud sessions. Collapse it with its `[-]`.
+- **A team board on GitHub.** The plugin keeps a `README.md` on the `multiplayer-state` branch up to date, so `https://github.com/<owner>/<repo>/tree/multiplayer-state` shows who is working on what to anyone with access, in a browser or on a phone.
 - **Editing a file a teammate has claimed, or that a teammate's open PR changes,** makes Claude stop and check with you. It never blocks. (PR checks use the `gh` CLI when it's installed and signed in; without it, claim-based warnings still work.)
 - **Claims release themselves** when their PR merges, whether an agent merged it or someone clicked Merge on GitHub.
 - **Stale claims** (no activity for 3 days, configurable) can be taken over; the owner is told.

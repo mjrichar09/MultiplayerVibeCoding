@@ -45,8 +45,9 @@ test('init is idempotent', async (t) => {
   const again = await alice.run(['init', '--create']);
   assert.equal(again.status, 0, again.stderr);
   assert.match(again.stdout, /Already on the team/);
-  const log = await alice.git('-C', '.multiplayer', 'log', '--oneline');
-  assert.equal(log.split('\n').length, 3); // empty root + create + join, nothing more
+  const log = (await alice.git('-C', '.multiplayer', 'log', '--format=%s')).split('\n');
+  assert.deepEqual(log.slice(1), ['multiplayer: alice joined', 'multiplayer: create team (alice)', 'multiplayer: start']); // nothing more…
+  assert.equal(log[0], 'multiplayer: update team board'); // …but the team board on top
 });
 
 test('the state worktree stays out of the main tree', async (t) => {

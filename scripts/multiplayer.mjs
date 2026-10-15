@@ -6,11 +6,12 @@
 
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
+import { boardData } from './lib/board.mjs'; // also registers the team board writer
 import { renderBriefing } from './lib/briefing.mjs';
 import { activeClaims, claim, listClaims, release } from './lib/claims.mjs';
 import { decide, handoff, listEntries, note } from './lib/entries.mjs';
-import { git, isAttached, stateDir } from './lib/git.mjs';
-import { prs } from './lib/gh.mjs';
+import { git, isAttached, pull, stateDir } from './lib/git.mjs';
+import { prs, readPrCache } from './lib/gh.mjs';
 import { afterMerge, postToolUse, preToolUse, sessionEnd, sessionStart, subagentStop } from './lib/hooks.mjs';
 import { identity } from './lib/identity.mjs';
 import { init, locate } from './lib/init.mjs';
@@ -55,6 +56,7 @@ const COMMANDS = {
   },
   revert: runRevert,
   merge: runMerge,
+  board: runBoard,
   // Background refresh started by the PreToolUse hook: pull state, refresh the
   // PR cache, and fetch the default branch (refs only; never touches files).
   refresh: async () => {
@@ -351,6 +353,32 @@ async function runProtect(argv) {
     `Protected ${r.branch} on ${r.repo}: merging now requires these checks to pass: ${r.checks.join(', ')}. ` +
       'Force-pushes and deleting the branch are blocked too.',
   );
+}
+
+// The team board: everyone's open claims, recent notes, waiting handoffs.
+// `--json` feeds the always-visible panel; `--sync` pulls teammates' changes first.
+async function runBoard(argv) {
+  const { values } = parseArgs({ args: argv, options: { json: { type: 'boolean' }, sync: { type: 'boolean' } } });
+  const { root, remote } = await locate(process.cwd());
+  if (!isAttached(root)) {
+    if (values.json) console.log(JSON.stringify({ setUp: false }));
+    else console.log('This repository has no multiplayer team yet.');
+    return;
+  }
+  const dir = stateDir(root);
+  if (values.sync) await pull(dir, remote, { timeout: 20_000 }).catch(() => {}); // offline: show what we have
+  const me = await identity(root).catch(() => null); // e.g. a cloud session without MULTIPLAYER_USER
+  const data = await boardData(dir, { prCache: await readPrCache(root) });
+  if (values.json) {
+    console.log(JSON.stringify({ setUp: true, me: me?.user ?? null, ...data }));
+    return;
+  }
+  for (const m of data.members) {
+    if (!m.claims.length) continue;
+    for (const c of m.claims) console.log(`${m.user}: ${c.task} [${c.paths.join(', ')}]${c.stale ? ' (stale)' : ''}`);
+  }
+  const idle = data.members.filter((m) => !m.claims.length).map((m) => m.user);
+  if (idle.length) console.log(`No claims: ${idle.join(', ')}`);
 }
 
 // Merge a PR once its checks pass, then release its claim and clean up the branch.

@@ -93,6 +93,8 @@ alice (1):
 | **Shared state** | A separate branch in your repo (`multiplayer-state`) holding claims, decisions, notes, and handoffs. On your machine it's the `.multiplayer/` folder. | No server or account needed. It syncs through git like everything else. |
 | **Claims** | "I'm working on *this task*, in *these files*." Made automatically before Claude edits. | Agents see each other's work and avoid collisions. |
 | **Session summary** | The short briefing at the start of every session. | Each session starts knowing what the team is doing. |
+| **Team panel** | A small band above the prompt listing what everyone is working on, refreshed every minute. Type `/team-board` for more detail. | You can see the whole team at a glance, all the time. |
+| **Team board on GitHub** | The same picture as a page on GitHub: the `multiplayer-state` branch's front page. | Anyone can check it from a browser or phone, even outside Claude Code. |
 | **Warnings** | Claude pauses before editing a file a teammate has claimed, or one changed in their open pull request. | Catches overlaps early instead of at merge time. Warnings never block you. |
 | **Task branches** | One task, one branch, one pull request. Created and cleaned up automatically. | Clean history; nobody works directly on `main`. |
 | **Git autopilot** | Keeps your branch up to date by **merging** (never rebasing), only at moments when nothing can be lost. | No git expertise needed, and no "my work disappeared". |
@@ -109,7 +111,7 @@ You don't need to learn any commands. Ask in plain language:
 
 | Say | What happens |
 |---|---|
-| "What's the team working on?" | Everyone's claims, recent decisions, and notes |
+| "What's the team working on?" | Everyone's claims, recent decisions, and notes (or glance at the team panel, or type `/team-board`) |
 | "Hand this to Alice." | Your work, branch, and notes go to Alice; her next session picks them up |
 | "We decided to use Postgres. Record that." | A team decision every teammate's Claude will see |
 | "Tell the team the API key rotated." | A team note in everyone's next summary |
@@ -168,6 +170,6 @@ Claude will also **suggest a handoff** when you mention you're going away or are
   - `handoffs/`: work passed between people
   - `members/`: who's on the team
   - `multiplayer.config.json`: team settings, such as how many days before a claim counts as stale
-- **`multiplayer-state`**: the branch on GitHub that syncs all of the above. Don't merge it into `main`; it's separate on purpose.
+- **`multiplayer-state`**: the branch on GitHub that syncs all of the above. Its front page on GitHub is the team board. Don't merge it into `main`; it's separate on purpose.
 - **`CLAUDE.md`**: the project briefing every agent reads. It includes the team's decisions.
 - **`.claude/settings.json`**: shared permissions and safety rules from the team-setup pull request.
