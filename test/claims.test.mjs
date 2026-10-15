@@ -298,3 +298,46 @@ test('the edit hook refreshes team state in the background', async (t) => {
   }
   assert.match(context(await edit(alice, 'late/b.ts')), /bob \(claim "late-claim"/);
 });
+
+// ------------------------------------------------------------------ board
+
+test('the team board lists everyone and is published as README.md on the state branch', async (t) => {
+  const team = await setup(['alice', 'bob', 'carol']);
+  t.after(team.cleanup);
+  const { alice, bob, carol } = team.members;
+  await ok(alice.run(['claim', '--task', 'Redo checkout', '--paths', 'src/checkout/**', '--no-branch']));
+  await ok(carol.run(['note'], { input: 'Staging DB is down\nUse local fixtures.' }));
+
+  const board = JSON.parse((await ok(bob.run(['board', '--json', '--sync']))).stdout);
+  assert.equal(board.me, 'bob');
+  assert.deepEqual(board.members.map((m) => [m.user, m.claims.map((c) => c.task)]), [
+    ['alice', ['Redo checkout']],
+    ['bob', []],
+    ['carol', []],
+  ]);
+  assert.deepEqual(board.notes.map((n) => [n.user, n.title]), [['carol', 'Staging DB is down']]);
+
+  // Whoever pushed last regenerated the board; GitHub shows it as the branch's README.
+  await bob.git('fetch', '-q', 'origin', 'multiplayer-state');
+  const readme = await bob.git('show', 'origin/multiplayer-state:README.md');
+  assert.match(readme, /^# Team board/);
+  assert.match(readme, /\| \*\*alice\*\* \| Redo checkout \| `src\/checkout\/\*\*` \|/);
+  assert.match(readme, /Not working on anything claimed: bob, carol\./);
+  assert.match(readme, /- carol: Staging DB is down/);
+
+  await ok(alice.run(['release', 'redo-checkout']));
+  await bob.git('fetch', '-q', 'origin', 'multiplayer-state');
+  assert.match(await bob.git('show', 'origin/multiplayer-state:README.md'), /Nobody has claimed any work right now\./);
+});
+
+test('board commits never block teammates pushing at the same time', async (t) => {
+  const names = ['alice', 'bob', 'carol', 'dan'];
+  const team = await setup(names);
+  t.after(team.cleanup);
+  await Promise.all(names.map((n) => ok(team.members[n].run(['claim', '--task', `Task ${n}`, '--paths', `${n}/**`, '--no-branch']))));
+  const board = JSON.parse((await ok(team.members.alice.run(['board', '--json', '--sync']))).stdout);
+  assert.deepEqual(board.members.map((m) => m.claims.length), [1, 1, 1, 1]);
+  await team.members.alice.git('fetch', '-q', 'origin', 'multiplayer-state');
+  const readme = await team.members.alice.git('show', 'origin/multiplayer-state:README.md');
+  for (const n of names) assert.match(readme, new RegExp(`Task ${n}`));
+});

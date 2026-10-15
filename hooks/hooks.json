@@ -1,4 +1,7 @@
 {
+  "modules": [
+    "./panel.tsx"
+  ],
   "hooks": {
     "SessionStart": [
       {

@@ -132,6 +132,14 @@ Across all setups, PreToolUse tracks which session or subagent edited which file
 
 **Handoff suggestions:** a standing rule tells agents to *offer* (never make) a handoff when the user says they'll be away, are stopping, are stuck, or someone else should continue; my claims quiet for `staleClaimDays − 1` days are flagged "finish it, release it, or offer a handoff"; a first-session welcome lists plain-language requests including "hand this to <name>".
 
+
+### 2.10 Seeing the team — the panel and the board
+
+Two always-available views of who is working on what, both drawn from `multiplayer board` (every active member with their open claims, recent notes, and handoffs not yet picked up):
+
+- **Team panel (in Claude Code).** A mod in the plugin (`hooks/panel.tsx`, listed under `modules` in `hooks/hooks.json`) draws a band above the prompt: one row per open claim (who, task, first files, last activity, stale or merged flags), then idle members, handoffs for me, and the note count. It reads the local state at session start, after each turn, and when `/team-board` opens the fuller pane; a timer pulls teammates' changes (`board --sync`) every minute. Terminal and desktop Code tab only (mods don't draw in the VS Code chat panel, `-p`, or cloud sessions); needs Claude Code 2.1.287+.
+- **Team board (on GitHub).** `README.md` on the `multiplayer-state` branch, which GitHub shows as the branch's front page. It's the one state file with many writers, so it never goes through a rebase: whoever pushes regenerates it as its own commit just before the push, and unpushed board commits are dropped before every pull. Dates, not "2h ago", so it stays true while nobody pushes.
+
 ---
 
 ## 3. Plugin layout (verified against docs — see `docs/research-notes.md`)
