@@ -8,8 +8,8 @@ import path from 'node:path';
 import { claim } from './claims.mjs';
 import { git } from './git.mjs';
 import { slugify } from './identity.mjs';
-import { defaultBranch, dirtyFiles, fetchDefault, revParse } from './workflow.mjs';
-import { githubRepo, prView } from './gh.mjs';
+import { currentBranchOrNull, defaultBranch, dirtyFiles, fetchDefault, revParse } from './workflow.mjs';
+import { githubRepo, prChecks, prView } from './gh.mjs';
 
 /** Run gh and keep its output and errors (for messages the user can act on). */
 function ghRun(args, { cwd, env = process.env, timeout = 15_000 } = {}) {
@@ -149,4 +149,66 @@ export async function revertChange(team, ref) {
     return { status: 'conflict', branch, sha, title, files: conflicts, pr };
   }
   return { status: 'reverted', branch, sha, title, files, pr };
+}
+
+/**
+ * Squash-merge a PR through GitHub's REST API, but only when every check on it
+ * passed (or, for a PR with no checks, when `tested` says the agent ran the
+ * tests itself). One command, so it needs a single permission rule, and REST,
+ * so it works in cloud sessions where `gh pr merge` (GraphQL) is blocked.
+ * GitHub's own rules (branch protection, required reviews) still apply.
+ * `ref` is a PR number, URL, or branch; empty means the current branch.
+ * Returns { status: 'merged' | 'already', pr, sha }.
+ */
+export async function mergePr(team, ref, { tested = false } = {}) {
+  const { root, env } = team;
+  const nwo = await githubRepo(root, { env });
+  if (!nwo) throw new Error("This repository's remote isn't on GitHub, so there's no pull request to merge.");
+  const pr = await prView(root, ref, { env });
+  if (!pr) {
+    throw new Error(
+      ref ? `Couldn't find PR ${ref}. ${NEED_GH}` : `No pull request found for this branch. Push it and open one first. ${NEED_GH}`,
+    );
+  }
+  const label = `PR #${pr.number}`;
+  if (pr.state === 'MERGED') return { status: 'already', pr, sha: pr.mergeCommit?.oid ?? null };
+  if (pr.state !== 'OPEN') throw new Error(`${label} is closed, so it can't be merged.`);
+  if (pr.isDraft) throw new Error(`${label} is still a draft. Mark it ready for review first (ask the user if it isn't yours).`);
+
+  if ((await currentBranchOrNull(root)) === pr.headRefName && (await revParse(root, 'HEAD')) !== pr.headRefOid) {
+    throw new Error(
+      `Your local ${pr.headRefName} doesn't match ${label} on GitHub. Push your commits (or pull the PR's), wait for its checks, then merge.`,
+    );
+  }
+
+  const checks = await prChecks(root, String(pr.number), { env });
+  if (checks === null) throw new Error(`Couldn't read the checks on ${label}. ${NEED_GH}`);
+  const names = (buckets) => checks.filter((c) => buckets.includes(c.bucket)).map((c) => c.name);
+  const failing = names(['fail', 'cancel']);
+  const pending = names(['pending']);
+  if (failing.length) {
+    throw new Error(`Not merging ${label}: failing checks: ${failing.join(', ')}. Fix them on the branch, or tell the user.`);
+  }
+  if (pending.length) {
+    throw new Error(`Checks on ${label} are still running (${pending.join(', ')}). Wait for them to finish, then run this again.`);
+  }
+  if (!checks.length && !tested) {
+    throw new Error(
+      `${label} has no checks (no CI ran on it). If you ran the project's tests and they passed, run \`multiplayer merge ${pr.number} --tested\`; otherwise tell the user.`,
+    );
+  }
+
+  const merged = await ghRun(
+    ['api', '-X', 'PUT', `repos/${nwo}/pulls/${pr.number}/merge`, '-f', 'merge_method=squash', '-f', `sha=${pr.headRefOid}`],
+    { cwd: root, env },
+  );
+  if (!merged.ok) {
+    const why = merged.json?.message || merged.stderr || 'unknown error';
+    throw new Error(`GitHub refused to merge ${label}: ${why}. If it needs a review or an update from ${pr.headRefName}'s base, tell the user.`);
+  }
+  // Like `gh pr merge --delete-branch`: remove the task branch on GitHub (not for PRs from forks).
+  if (pr.headRepo === nwo && pr.headRefName) {
+    await ghRun(['api', '-X', 'DELETE', `repos/${nwo}/git/refs/heads/${pr.headRefName}`], { cwd: root, env });
+  }
+  return { status: 'merged', pr: { ...pr, state: 'MERGED' }, sha: merged.json?.sha ?? null };
 }

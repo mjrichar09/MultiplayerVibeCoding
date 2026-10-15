@@ -6,13 +6,13 @@ A first trial with a real team, to find friction before anyone else uses multipl
 
 - [ ] Everyone has Claude Code, Node.js 18+, git, and read access to `mjrichar09/MultiplayerVibeCoding`.
 - [ ] Ideally everyone has `gh` installed and signed in (`gh auth login`).
-- [ ] Decide how production deploys work (see "Deploying safely" in the README). If merging to `main` deploys to production, remove `Bash(gh pr merge *)` from the setup PR's settings before merging it.
+- [ ] Decide how production deploys work (see "Deploying safely" in the README). If merging to `main` deploys to production, add `Bash(multiplayer merge *)` and `Bash(gh pr merge *)` to `permissions.ask` in the setup PR's settings before merging it.
 
 ## Day 1: setup
 
 - [ ] **Setup (one person):** "Set up multiplayer for this repo". Check that the team-setup PR is sensible: is `CLAUDE.md` filled in correctly? Merge it.
 - [ ] **Branch protection:** accept the offer to turn it on (`multiplayer protect`), or note why it couldn't be turned on.
-- [ ] **Joining (everyone else):** pull, open Claude Code, accept the trust prompt, install the plugin, start a session. Did you join automatically?
+- [ ] **Joining (everyone else):** pull, open Claude Code, accept the trust prompt, install the plugin (project scope), start a session. Did you join automatically?
 - [ ] **Health check (everyone):** ask "Is multiplayer working?" and paste anything that isn't ✓ into the log below.
 
 ## During the trial: try each of these at least once
@@ -52,4 +52,7 @@ For anything surprising, log: what you asked, what the agent did, what you expec
 
 | Date | Who | Setup (local, cloud, worktrees…) | What happened | Expected | Impact (low / med / high) |
 |---|---|---|---|---|---|
+| 2026-10 | mjrichar09 | local, auto mode | Auto mode stopped the agent running `gh pr merge` | Agents merge green PRs without fuss | high: fixed: agents now merge with `multiplayer merge` (one pre-approved command that checks first, uses the REST API, and cleans up) |
+| 2026-10 | mjrichar09 | local | Setup steps needed for testing (dependencies, configuration) were only obvious to whoever hit them first; recorded with a team note | Later teammates know what to set up | med: fixed: setup steps also go in CLAUDE.md's new "Getting set up" section, and a new teammate's first session walks them through it |
+| 2026-10 | mjrichar09 | local | Installing asks for a scope (user, project, local); instructions didn't say which | Clear instructions | low: fixed: docs say to pick project scope |
 | | | | | | |

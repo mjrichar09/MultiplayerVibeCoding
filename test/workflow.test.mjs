@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { makeTeam } from './helpers/team.mjs';
@@ -262,4 +262,67 @@ test('a PR merged on GitHub is cleaned up at the next session start', async (t) 
   assert.match(r.json.systemMessage, /switched to main and deleted the merged branch alice\/web/);
   assert.equal(await branchOf(alice), 'main');
   assert.match(await log(alice), /Squash alice\/web/);
+});
+
+// ---------------------------------------------------------------- merge
+
+const recorded = (team, suffix) => {
+  try {
+    return JSON.parse(readFileSync(`${team.env.FAKE_GH_FIXTURE}.${suffix}.json`, 'utf8'));
+  } catch {
+    return [];
+  }
+};
+
+test('multiplayer merge squash-merges a green PR, then releases the claim and lands on main', async (t) => {
+  const team = await setup(['alice']);
+  t.after(team.cleanup);
+  const { alice } = team.members;
+  await ok(alice.run(['claim', '--task', 'Feat', '--paths', 'src/**']));
+  await commit(alice, 'src/f.ts', 'f\n', 'Alice adds f.ts');
+  await alice.git('push', '-q', '-u', 'origin', 'alice/feat');
+  const tip = await alice.git('rev-parse', 'HEAD');
+  await team.setPrs({ open: [{ number: 5, title: 'Feat', headRefName: 'alice/feat', headRefOid: tip }], checks: { 5: [{ name: 'test', bucket: 'pass' }] } });
+  await squashMergeOnGitHub(team, 'alice/feat'); // what GitHub does when it accepts the merge
+
+  const r = await ok(alice.run(['merge']));
+  assert.match(r.stdout, /Merged PR #5 \("Feat"\)\./);
+  assert.match(r.stdout, /released "feat" \(PR #5 merged\); switched to main and deleted the merged branch alice\/feat/);
+  assert.deepEqual(recorded(team, 'merges'), [{ url: 'repos/acme/app/pulls/5/merge', merge_method: 'squash', sha: tip }]);
+  assert.deepEqual(recorded(team, 'deleted'), ['repos/acme/app/git/refs/heads/alice/feat']);
+  assert.equal(await branchOf(alice), 'main');
+});
+
+test('multiplayer merge refuses red, running, or missing checks and unpushed work', async (t) => {
+  const team = await setup(['alice']);
+  t.after(team.cleanup);
+  const { alice } = team.members;
+  await ok(alice.run(['claim', '--task', 'Feat', '--paths', 'src/**']));
+  await commit(alice, 'src/f.ts', 'f\n', 'Alice adds f.ts');
+  await alice.git('push', '-q', '-u', 'origin', 'alice/feat');
+  const tip = await alice.git('rev-parse', 'HEAD');
+  const pr = { number: 5, headRefName: 'alice/feat', headRefOid: tip };
+  const tryMerge = async (fixture, args = ['merge', '5']) => {
+    await team.setPrs({ open: [pr], ...fixture });
+    return alice.run(args);
+  };
+
+  const red = await tryMerge({ checks: { 5: [{ name: 'test', bucket: 'fail' }] } });
+  assert.notEqual(red.status, 0);
+  assert.match(red.stderr, /Not merging PR #5: failing checks: test/);
+  assert.match((await tryMerge({ checks: { 5: [{ name: 'test', bucket: 'pending' }] } })).stderr, /still running \(test\)/);
+  assert.match((await tryMerge({ checks: {} })).stderr, /PR #5 has no checks.*--tested/);
+  assert.equal(recorded(team, 'merges').length, 0);
+
+  assert.match(
+    (await tryMerge({ checks: { 5: [{ name: 'test', bucket: 'pass' }] }, mergeError: 'At least 1 approving review is required' })).stderr,
+    /GitHub refused to merge PR #5: At least 1 approving review is required/,
+  );
+
+  await commit(alice, 'src/g.ts', 'g\n', 'Not pushed yet');
+  assert.match((await tryMerge({ checks: { 5: [{ name: 'test', bucket: 'pass' }] } })).stderr, /doesn't match PR #5 on GitHub\. Push/);
+
+  await alice.git('reset', '-q', '--hard', tip);
+  await ok(tryMerge({ checks: {} }, ['merge', '5', '--tested']));
+  assert.equal(recorded(team, 'merges').length, 1);
 });

@@ -18,14 +18,15 @@
    ```
    /plugin install multiplayer --marketplace mjrichar09/MultiplayerVibeCoding
    ```
-   (Older Claude Code: `claude plugin marketplace add mjrichar09/MultiplayerVibeCoding`, then `claude plugin install multiplayer@multiplayer-vibe-coding`.)
+   When Claude Code asks where to install it, choose **"Install for all collaborators on this repository (project scope)"**. That records the plugin in the repo's shared settings, so teammates are offered it automatically. (The other choices install it only for you: "user scope" turns it on in every project on your machine, and "local scope" only in your copy of this repo.)
+   (Older Claude Code: `claude plugin marketplace add mjrichar09/MultiplayerVibeCoding`, then `claude plugin install multiplayer@multiplayer-vibe-coding --scope project`.)
 2. Open Claude Code in your project and say: **"Set up multiplayer for this repo."**
    Claude creates the team and opens a **team-setup PR**: a team `CLAUDE.md` filled in from your repo, shared settings, and a PR template. It also offers to turn on branch protection.
-3. Review and merge the team-setup PR. Fill in the "Ask before touching" section of `CLAUDE.md` when you get a chance.
+3. Review and merge the team-setup PR. Fill in the "Ask before touching" section of `CLAUDE.md` when you get a chance, and check its "Getting set up" section: it's what new teammates' agents walk them through before running anything.
 
 ### Everyone else joins (about 1 minute)
 
-1. Pull the repo after the setup PR merges, and open Claude Code in it. Accept the "trust this folder" prompt: that turns on the shared settings and offers you the plugin. Install it if asked, or with the command above.
+1. Pull the repo after the setup PR merges, and open Claude Code in it. Accept the "trust this folder" prompt: that turns on the shared settings and offers you the plugin. Install it if asked, or with the command above (project scope again).
 2. Start a new session. You join the team automatically and see what everyone is working on.
 
 ### Check that it's working
@@ -62,7 +63,7 @@ You never need commands; agents claim, branch, update, record, and clean up on t
 - **CLAUDE.md keeps up.** Its "Team decisions" section lists every current decision; when it falls behind, the agent updates it as its own commit. Conflicts in that section are settled automatically.
 - **Decisions and notes spread on their own.** When a design choice is settled, the agent records a short decision record; when it learns something the team needs (a broken environment, a flaky test), it posts a note. Teammates see both at their next session start.
 - **Handoffs when you ask.** "Bob is taking over checkout" makes the agent commit, push the branch, and write a handoff. Bob's next session accepts the claim, switches to the branch if he's free, and starts with the notes.
-- **Merging is guarded.** Agents merge only after a PR's checks pass. They're warned if checks are failing, still running, or missing. `multiplayer protect` turns on GitHub branch protection, so failing PRs can't merge at all. To undo a merged PR, ask for it ("revert #42"): the agent opens a revert PR and tells the team. Later work is kept.
+- **Merging is guarded.** Agents merge with `multiplayer merge`, which squash-merges only after a PR's checks pass, then releases the claim and cleans up the branch. They're warned if checks are failing, still running, or missing. `multiplayer protect` turns on GitHub branch protection, so failing PRs can't merge at all. To undo a merged PR, ask for it ("revert #42"): the agent opens a revert PR and tells the team. Later work is kept.
 - **Git runs itself.** Each task gets its own branch from the latest `main`. Branches are kept current by merging `main` in (never rebasing), automatically at session start when that's safe. Conflicts are resolved by the agent, which asks you only when both sides changed the same logic. After a PR merges, you're switched back to an updated `main` and the old branch is deleted. Nothing automatic ever runs if it could lose work.
 
 ## Running several agents at once
@@ -99,7 +100,7 @@ Agents merge PRs once their checks pass. That's safe as long as **merging to `ma
 1. **Manual production deploys.** `main` deploys automatically to a *staging* site, where you can try changes. Production needs a person's one-click approval: a GitHub Actions environment with a required reviewer, or your host's built-in "promote to production" (Vercel, Netlify, and most platforms have one).
 2. **A release branch or tags.** Production deploys only from a `release` branch or a version tag that a person creates when they choose to ship. `main` stays the place where finished work comes together.
 
-**If `main` must deploy straight to production:** don't let agents merge on their own. Remove `Bash(gh pr merge *)` from the `allow` list in `.claude/settings.json` (or move it to `ask`), so a person approves each merge.
+**If `main` must deploy straight to production:** don't let agents merge on their own. In `.claude/settings.json`, add `"Bash(multiplayer merge *)"` and `"Bash(gh pr merge *)"` to `permissions.ask` (an `ask` rule wins over `allow`), so a person approves each merge.
 
 **Either way:**
 - **Turn on branch protection** (`multiplayer protect`) so failing checks can't merge.
@@ -114,7 +115,7 @@ Start with **"Is multiplayer working?"** (`multiplayer doctor`). Common cases:
 - **"multiplayer is paused in this session":** this session commits as a shared identity (e.g. a cloud session). Set `MULTIPLAYER_USER` to your team username in that environment.
 - **"Sharing claims ✗ can't push multiplayer-state":** you need write access to the repo, and some cloud environments only allow pushing a session's own branch.
 - **PR warnings, merge checks, or release-on-merge don't happen:** they need the GitHub CLI (`gh`) installed and signed in (`gh auth login`), and the repo must be on GitHub. Claims, the summary, and everything else work without it.
-- **An agent keeps asking permission for git or multiplayer commands:** the team-setup PR's `.claude/settings.json` pre-approves them; make sure it's merged and the folder is trusted.
+- **An agent keeps asking permission for git or multiplayer commands, or auto mode blocks a merge:** the team-setup PR's `.claude/settings.json` pre-approves them (agents merge with `multiplayer merge`, which checks first); make sure it's merged and the folder is trusted. Until then, Claude Code's auto mode treats an agent merging its own PR as risky and stops it; asking for it directly ("merge PR #12") usually lets that one through.
 
 ## Configuration
 

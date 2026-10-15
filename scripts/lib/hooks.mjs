@@ -230,7 +230,9 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const WELCOME =
   "welcome to the team! Teammates' claims, decisions, and notes now appear here at each session start. " +
   'Things the user can simply say: "what is the team working on?", "hand this to <name>", ' +
-  '"record that we decided …", "tell the team …". Mention this to the user once.';
+  '"record that we decided …", "tell the team …". Mention this to the user once. ' +
+  'Before running or testing anything, read the "Getting set up" section of CLAUDE.md (if there is one), check which ' +
+  'of those tools, accounts, and environment variables are missing on this machine, and help the user set them up.';
 
 // Per-worktree record of the default-branch tip we've already told the agent about.
 async function incomingSeen(root) {
@@ -321,7 +323,7 @@ const areaOf = (rel) => path.posix.dirname(rel);
 
 // Commands a worker should leave to its lead (PLAN §2.9).
 const LEAD_ONLY_COMMAND =
-  /\bgit\s+(commit|merge|rebase|push|pull|switch|checkout|reset|branch|stash|cherry-pick|revert)\b|\bgh\s+pr\s+(create|merge)\b|(?:multiplayer\.mjs|\bmultiplayer)\s+(claim|release|update|handoff|init|decide|worktree|collect|sync|scaffold)\b/;
+  /\bgit\s+(commit|merge|rebase|push|pull|switch|checkout|reset|branch|stash|cherry-pick|revert)\b|\bgh\s+pr\s+(create|merge)\b|(?:multiplayer\.mjs|\bmultiplayer)\s+(claim|release|update|handoff|init|decide|worktree|collect|sync|scaffold|merge|revert)\b/;
 const LEAD_ONLY_SKILL = /^multiplayer:(claim|release|update|handoff|init|decide)$/;
 
 /** Warn a worker that's about to do its lead's job (git, claims, PRs). Never blocks. */
@@ -363,7 +365,7 @@ async function mergeGuard(input, env) {
     return `⚠️ multiplayer: don't merge ${pr}: failing checks: ${failing.join(', ')}. Fix them on the branch, or report the failures to the user, instead of merging.`;
   }
   if (pending.length) {
-    return `multiplayer: checks on ${pr} are still running (${pending.join(', ')}). Wait for them to finish and merge only if they pass, or use GitHub's auto-merge (e.g. \`gh pr merge --squash --auto\`) so GitHub waits for the required checks.`;
+    return `multiplayer: checks on ${pr} are still running (${pending.join(', ')}). Wait for them to finish and merge only if they pass, or use GitHub's auto-merge (e.g. \`gh pr merge --squash --auto\`) so GitHub waits for the required checks. Prefer \`multiplayer merge\`: it checks first and cleans up after.`;
   }
   return null;
 }
@@ -527,6 +529,34 @@ function mergeTarget(input) {
   return null;
 }
 
+/**
+ * After a PR merges: release my claims on its branch, then switch to the
+ * default branch and delete the merged branch when that's safe. Shared by the
+ * PostToolUse hook and `multiplayer merge`. Returns what was done, as phrases.
+ */
+export async function afterMerge(root, pr, { env = process.env, input = {}, timeout = HOOK_NET_TIMEOUT_MS } = {}) {
+  await rm(path.join(await localDir(root), 'gh-cache.json'), { force: true });
+  const team = await openTeam(root, { env, timeout });
+  const mine = activeClaims(await listClaims(team.dir)).filter(
+    (c) => c.user === team.me.user && c.branch === pr.headRefName && !c.keep,
+  );
+  const parts = [];
+  if (mine.length) {
+    await release({ ...team, timeout }, mine.map((c) => ({ claim: c, outcome: `merged in #${pr.number}` })));
+    parts.push(`released ${mine.map((c) => `"${c.slug}"`).join(', ')} (PR #${pr.number} merged)`);
+  }
+  // Hooks know their session and exclude it; a CLI run inside a session counts itself once.
+  const peers = (await peersInFolder(root, input.session_id)).length;
+  const busyFolder = (await workerRole(root, input, env)) || (input.session_id ? peers > 0 : peers > 1);
+  if (team.config.autoUpdate !== false && !busyFolder) {
+    const base = await defaultBranch(root, team.remote, team.config);
+    const r = await cleanupMergedBranch(root, team.remote, base, pr.headRefName, pr.headRefOid, { timeout });
+    if (r.status === 'cleaned') parts.push(`switched to ${base} and deleted the merged branch ${pr.headRefName}`);
+    else if (r.reason !== 'not checked out') parts.push(`kept branch ${pr.headRefName} (${r.reason})`);
+  }
+  return parts;
+}
+
 export async function postToolUse(input, { env = process.env } = {}) {
   const target = mergeTarget(input);
   if (!target) return null;
@@ -536,26 +566,7 @@ export async function postToolUse(input, { env = process.env } = {}) {
 
   const pr = await prView(root, target.ref, { repo: target.repo, env });
   if (pr?.state !== 'MERGED' || !pr.headRefName) return null;
-  await rm(path.join(await localDir(root), 'gh-cache.json'), { force: true });
-
-  const team = await openTeam(root, { env, timeout: HOOK_NET_TIMEOUT_MS });
-  const mine = activeClaims(await listClaims(team.dir)).filter(
-    (c) => c.user === team.me.user && c.branch === pr.headRefName && !c.keep,
-  );
-  const parts = [];
-  if (mine.length) {
-    await release({ ...team, timeout: HOOK_NET_TIMEOUT_MS }, mine.map((c) => ({ claim: c, outcome: `merged in #${pr.number}` })));
-    parts.push(`released ${mine.map((c) => `"${c.slug}"`).join(', ')} (PR #${pr.number} merged)`);
-  }
-  const busyFolder = (await workerRole(root, input, env)) || (await peersInFolder(root, input.session_id)).length;
-  if (team.config.autoUpdate !== false && !busyFolder) {
-    const base = await defaultBranch(root, team.remote, team.config);
-    const r = await cleanupMergedBranch(root, team.remote, base, pr.headRefName, pr.headRefOid, {
-      timeout: HOOK_NET_TIMEOUT_MS,
-    });
-    if (r.status === 'cleaned') parts.push(`switched to ${base} and deleted the merged branch ${pr.headRefName}`);
-    else if (r.reason !== 'not checked out') parts.push(`kept branch ${pr.headRefName} (${r.reason})`);
-  }
+  const parts = await afterMerge(root, pr, { env, input });
   if (!parts.length) return null;
   const msg = `multiplayer: ${parts.join('; ')}`;
   return output('PostToolUse', `${msg}. Tell the user in one line.`, msg);

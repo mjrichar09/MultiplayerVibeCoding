@@ -17,4 +17,6 @@ Post a team note. Text (if given): $ARGUMENTS
    ```
 3. Tell the user in one line, e.g. `multiplayer: told the team "Staging DB is down; use the local fixtures"`.
 
+If the note is a **setup step every newcomer will need** (a tool or version to install, an environment variable and where to get its value, access to request), also add it to the "Getting set up" section of `CLAUDE.md` on your task branch (create the section if it's missing), so it reaches teammates who join later: notes fade after a few days, `CLAUDE.md` doesn't. New teammates' agents check that section on their first session.
+
 Don't use notes for decisions (use the decide skill) or for passing work to someone (use the handoff skill).

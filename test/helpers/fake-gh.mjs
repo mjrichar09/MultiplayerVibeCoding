@@ -3,7 +3,7 @@
 // fixture named by FAKE_GH_FIXTURE:
 //   { merged: [pr], open: [pr], checks: { <pr number>: [{ name, bucket }] },
 //     repo: { nameWithOwner, viewerPermission }, mainChecks: [name],
-//     mainStatuses: [context], protected, protectError, user }
+//     mainStatuses: [context], protected, protectError, mergeError, user }
 // where pr = { number, title, headRefName, headRefOid?, author?, mergedAt?,
 // isDraft?, files?: [{ path }], mergeCommit?: { oid } }.
 // Exits 1 when the fixture is missing, like a signed-out gh.
@@ -33,7 +33,7 @@ const rest = (p, merged) => ({
   title: p.title ?? `PR ${p.number}`,
   state: merged ? 'closed' : 'open',
   draft: Boolean(p.isDraft),
-  head: { ref: p.headRefName, sha: sha(p) },
+  head: { ref: p.headRefName, sha: sha(p), repo: { full_name: fixture.repo?.nameWithOwner ?? 'acme/app' } },
   user: { login: p.author?.login ?? 'someone' },
   merged_at: merged ? p.mergedAt ?? now : null,
   merge_commit_sha: merged ? p.mergeCommit?.oid ?? null : null,
@@ -45,6 +45,18 @@ const open = (fixture.open ?? []).map((p) => ({ p, rest: rest(p, false) }));
 const all = [...open, ...merged];
 
 const put = args.includes('PUT');
+const del = args.includes('DELETE');
+const record = (suffix, entry) => {
+  const file = `${process.env.FAKE_GH_FIXTURE}.${suffix}.json`;
+  let list = [];
+  try {
+    list = JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    // first call
+  }
+  writeFileSync(file, JSON.stringify([...list, entry]));
+};
+const fields = Object.fromEntries(args.flatMap((a, i) => (args[i - 1] === '-f' ? [a.split('=')] : [])));
 const endpoint = args.find((a) => a.startsWith('repos/') || a === 'user');
 const [route, query = ''] = (endpoint ?? '').split('?');
 const params = new URLSearchParams(query);
@@ -54,6 +66,17 @@ if (route === 'user') {
   const login = process.env.FAKE_GH_USER ?? fixture.user;
   if (!login) process.exit(1);
   out({ login });
+} else if (put && route.endsWith('/merge')) {
+  if (fixture.mergeError) {
+    out({ message: fixture.mergeError });
+    process.stderr.write(`gh: ${fixture.mergeError} (HTTP 405)`);
+    process.exit(1);
+  }
+  record('merges', { url: route, ...fields });
+  out({ merged: true, sha: 'mergedsha' });
+} else if (del) {
+  record('deleted', route);
+  out({});
 } else if (put && route.endsWith('/protection')) {
   if (fixture.protectError) {
     process.stderr.write(fixture.protectError);

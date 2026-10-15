@@ -25,9 +25,10 @@ Or from a terminal:
 
 ```
 claude plugin marketplace add mjrichar09/MultiplayerVibeCoding
-claude plugin install multiplayer@multiplayer-vibe-coding
+claude plugin install multiplayer@multiplayer-vibe-coding --scope project
 ```
 
+- **Pick project scope** ("Install for all collaborators on this repository") when installing for a team: it records the plugin in the repo's `.claude/settings.json`. User scope would turn it on in every project on that machine.
 - **While the repo is private**, only people with read access to it can install. Their git or `gh` credentials are used to fetch it.
 - **Teams don't need everyone to run the install command.** The team-setup PR adds `extraKnownMarketplaces` and `enabledPlugins` to the project's `.claude/settings.json`, so teammates are offered the plugin when they trust the folder.
 - **Updates:** auto-update is off by default for third-party marketplaces. Users get new versions with `claude plugin marketplace update multiplayer-vibe-coding`, or by turning on auto-update for the marketplace in `/plugin`.

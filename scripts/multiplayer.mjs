@@ -10,14 +10,14 @@ import { activeClaims, claim, listClaims, release } from './lib/claims.mjs';
 import { decide, handoff, listEntries, note } from './lib/entries.mjs';
 import { git, isAttached, stateDir } from './lib/git.mjs';
 import { prs } from './lib/gh.mjs';
-import { postToolUse, preToolUse, sessionEnd, sessionStart, subagentStop } from './lib/hooks.mjs';
+import { afterMerge, postToolUse, preToolUse, sessionEnd, sessionStart, subagentStop } from './lib/hooks.mjs';
 import { identity } from './lib/identity.mjs';
 import { init, locate } from './lib/init.mjs';
 import { listMembers } from './lib/state.mjs';
 import { activeSessions, setWorker, workerRole } from './lib/sessions.mjs';
 import { collectWorktree, createWorktree } from './lib/parallel.mjs';
 import { scaffold, syncClaudeMd } from './lib/docs.mjs';
-import { protectDefaultBranch, revertChange } from './lib/safety.mjs';
+import { mergePr, protectDefaultBranch, revertChange } from './lib/safety.mjs';
 import { doctor, formatDoctor } from './lib/doctor.mjs';
 import { openTeam } from './lib/team.mjs';
 import { now, splitList } from './lib/util.mjs';
@@ -53,6 +53,7 @@ const COMMANDS = {
     if (results.some((r) => r.status === 'fail')) process.exitCode = 1;
   },
   revert: runRevert,
+  merge: runMerge,
   // Background refresh started by the PreToolUse hook: pull state, refresh the
   // PR cache, and fetch the default branch (refs only; never touches files).
   refresh: async () => {
@@ -348,6 +349,18 @@ async function runProtect(argv) {
     `Protected ${r.branch} on ${r.repo}: merging now requires these checks to pass: ${r.checks.join(', ')}. ` +
       'Force-pushes and deleting the branch are blocked too.',
   );
+}
+
+// Merge a PR once its checks pass, then release its claim and clean up the branch.
+async function runMerge(argv) {
+  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { tested: { type: 'boolean' } } });
+  const team = await openTeam(process.cwd());
+  if (await workerRole(team.root, {}, process.env)) throw new Error('This is a worker session: leave merging to your lead.');
+  const r = await mergePr(team, positionals[0], { tested: values.tested });
+  const what = `PR #${r.pr.number}${r.pr.title ? ` ("${r.pr.title}")` : ''}`;
+  console.log(r.status === 'already' ? `${what} was already merged.` : `Merged ${what}.`);
+  const done = await afterMerge(team.root, r.pr, { timeout: 10_000 }).catch(() => []);
+  if (done.length) console.log(`multiplayer: ${done.join('; ')}.`);
 }
 
 // Undo a merged PR (or commit) through a normal revert PR.
