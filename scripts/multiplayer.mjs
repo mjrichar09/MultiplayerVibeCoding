@@ -4,6 +4,7 @@
 // Hook subcommands (`hook <event>`) must fail open: any error exits 0 with no
 // output so a broken plugin never breaks a Claude Code session.
 
+import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { renderBriefing } from './lib/briefing.mjs';
 import { activeClaims, claim, listClaims, release } from './lib/claims.mjs';
@@ -77,7 +78,8 @@ const COMMANDS = {
     }
   },
   version: async () => {
-    console.log('multiplayer 0.1.0');
+    const manifest = new URL('../.claude-plugin/plugin.json', import.meta.url);
+    console.log(`multiplayer ${JSON.parse(readFileSync(manifest, 'utf8')).version}`);
   },
 };
 

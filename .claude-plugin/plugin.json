@@ -1,7 +1,7 @@
 {
   "name": "multiplayer",
   "displayName": "Multiplayer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Async coordination for teams of any size running Claude Code on one repo: claims, decisions, handoffs, and overlap warnings.",
   "author": { "name": "mjrichar09", "url": "https://github.com/mjrichar09" },
   "homepage": "https://github.com/mjrichar09/MultiplayerVibeCoding#readme",
