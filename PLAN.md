@@ -1,0 +1,276 @@
+# multiplayer — a Claude Code plugin for team "multiplayer vibe coding"
+
+> **For Claude Code:** This is the build plan. Read it fully, then start with **Phase 0**. Work phase by phase, commit at the end of each phase, and stop to report at each ⏸ checkpoint. Where this plan states a fact about Claude Code's plugin/hook/skill format, **verify it against the current official docs first** (code.claude.com/docs) — the docs win over this file. Verified findings live in `docs/research-notes.md`.
+>
+> *Name:* `multiplayer` (decided; replaced the placeholder `duo`, which implied exactly two people).
+
+---
+
+## 1. Problem & goal
+
+A team of **N developers** (two or more), each running their own Claude Code sessions against one shared repo. Today, each Claude only knows what its own human told it, which produces:
+
+- duplicated or colliding work (several agents editing the same files)
+- decisions made in one session that the other Claudes never learn about, then contradict
+- lossy handoffs ("what did you change and why?"), including handoffs to whoever picks the work up next
+- `CLAUDE.md` drift as the project evolves
+
+**Goal:** a plugin that adds an **async coordination layer** so each person's Claude automatically knows what each teammate is working on, what's been decided, and what was handed off to them (or to everyone) — with minimal ceremony, and with output that stays compact as the team grows.
+
+**Scale target:** works for any team size; designed and tested for **2–15 active members**. Nothing in the design assumes a fixed number of people. Larger teams work, but git push contention on the state branch and briefing size are the limits (see §2.6).
+
+**Non-goals (v1):**
+- Live shared sessions — use [claude-share](https://github.com/Paradigm-Study/claude-share) or similar alongside this; don't rebuild it.
+- Hosted servers, dashboards, auth, permissions between members.
+- Blocking anyone's work. Every guard **warns**, never blocks.
+
+---
+
+## 2. Core design decisions
+
+### 2.1 Where shared state lives — an orphan git branch
+Claims and decisions must be visible to teammates *immediately*, but feature branches aren't. So:
+
+- State lives on an **orphan branch `multiplayer-state`** in the same remote.
+- Locally it's checked out as a **git worktree at `.multiplayer/`**, kept out of the main tree's `git status` via `.git/info/exclude` (so joining never modifies a tracked file).
+- Scripts `git pull --rebase` before reading and commit + push after writing.
+- No server, no extra repo, works with any GitHub/GitLab remote.
+
+*Fallback (config option, not default):* a `.collab/` folder committed to `main`.
+
+### 2.2 Merge-conflict-free file layout — one writer per file
+Never have two people edit the same state file. Every file is created and only ever modified or deleted by **one** member — its author. This is what makes the design scale to any team size: concurrent writers only ever add/remove *different* paths, so `pull --rebase` always succeeds.
+
+```
+.multiplayer/
+├── multiplayer.config.json          # team-wide settings only (written once by the creator; no member list)
+├── members/<user>.json              # one file per member, self-registered on join; edited only by that member
+├── claims/<user>--<slug>.md         # one file per active claim; deleted by its owner on release
+├── decisions/<ts>--<user>--<slug>.md  # ADR-style, append-only, never edited after write
+├── handoffs/<ts>--<from>--<slug>.md   # passing work: `to: [bob]`, transfers a claim
+├── notes/<ts>--<user>--<slug>.md      # team notes, to everyone
+└── history/<user>.md                # per-member log of released claims
+```
+
+- Each file has YAML frontmatter (machine-readable) + markdown body (human/Claude-readable).
+- IDs are timestamp-based (`20261014-0943`) **plus the author slug**, so two members writing in the same minute never collide and nobody has to coordinate a counter.
+- **Membership is the set of files in `members/`.** Joining adds a file; leaving sets `"active": false` in your own file. No one edits a shared roster, so N members can join concurrently.
+- Handoff recipients live in frontmatter, not the filename. A handoff always names its recipient(s); broadcast updates are notes, a separate type.
+- Read/unread state is **per user and local** (`.multiplayer/.local/`, gitignored on the state branch), so marking something read never writes shared state.
+
+### 2.3 Identity
+`MULTIPLAYER_USER` env var → else `git config user.name` slugified. On join, if `members/<slug>.json` already exists with a different `git config user.email`, init refuses and asks the user to set `MULTIPLAYER_USER` (prevents two people silently sharing an identity).
+
+### 2.4 Implementation stack
+- Hook/helper scripts: **Node (ESM), zero runtime dependencies**, one CLI entry `scripts/multiplayer.mjs <subcommand>`.
+- `gh` CLI optional (used for PR overlap detection; degrade gracefully if missing/unauthenticated).
+- Skills (markdown) call the CLI via Bash so behavior is deterministic and testable outside Claude.
+
+### 2.5 Hook guardrails (non-negotiable)
+- **Fail open:** any error → exit 0 with no output (or a one-line note). Never break a session.
+- **Fast:** SessionStart < 3s in steady state (one `pull`; the one-time auto-join may take longer, hook timeout 15s), PreToolUse < 1s. Network calls cached (TTL ~5 min) with hard timeouts. PreToolUse never touches the network synchronously — it reads local state and caches only, and at most every 2 minutes starts a detached background `refresh` (pull + PR cache) so teammates' mid-session claims show up on later edits.
+- **Warn, don't block.** (PreToolUse returns `hookSpecificOutput.additionalContext` with no `permissionDecision`.)
+- Never print or commit secrets; never read `.env*`.
+
+### 2.6 Scaling to N members
+- **Push contention:** with many members, pushes to `multiplayer-state` race. Writes retry `pull --rebase` + push with jittered exponential backoff (up to ~6 attempts). Because of §2.2 the rebase never conflicts; only the push can lose a race.
+- **Briefing size:** the SessionStart briefing has a hard cap (~40 lines) regardless of team size. It prioritizes, in order: handoffs addressed to me → claims overlapping my current branch/claims → new decisions → recent notes → other teammates' claims grouped per person, most recent first. Anything past the cap collapses to a summary line (`+7 more claims from carol, dan, erin — run /multiplayer:status`).
+- **Overlap warnings** list *every* teammate whose claim or open PR touches the file, not just the first match.
+- **Inactive members** (left the team, or no activity in N days, configurable) are hidden from briefings but their claims still show as stale.
+- **Stale claims:** a claim with no activity for `staleClaimDays` (default **3**, set in `multiplayer.config.json`) is flagged as stale in `/status` and the briefing. Only the owner deletes their claim. A teammate who needs the area runs `/multiplayer:claim --takeover <user>/<slug>`, which creates *their own* claim that supersedes the stale one (`supersedes:` in frontmatter). Warnings then point to the new owner, the original file is untouched (one-writer rule holds), and the original owner's next briefing says who took it over. Takeover of a non-stale claim is refused.
+
+### 2.7 Automatic by default
+Members shouldn't have to remember slash commands. Each action runs **automatically** — triggered by a hook or by the agent on its own judgment — or **when asked** in plain language ("hand this off to Bob"). Slash commands still exist as a manual override, but nothing depends on anyone typing them.
+
+Three layers make this work, from most to least deterministic:
+1. **Hooks** (run every time, no model judgment): briefing at session start, auto-join, release-on-merge, overlap warnings, unclaimed-edit nudges, and a "where I left off" snapshot at session end.
+2. **Model-invoked skills**: every skill is model-invocable (no `disable-model-invocation`), with a description that says *when* to use it ("Use proactively before your first edit for a new task…"). Hooks nudge the agent toward the right skill via `additionalContext`.
+3. **Standing rules** in the scaffolded `CLAUDE.md` and in the session-start briefing, restating when to claim, record a decision, post a note, and sync.
+
+Automatic actions announce themselves in one line to the user (e.g. `multiplayer: claimed src/checkout/** for "redo checkout flow"`), so nothing happens invisibly. Every action is still **warn, don't block**.
+
+| Action | Runs | Trigger |
+|---|---|---|
+| join (init, joiner path) | automatic | SessionStart: `multiplayer-state` exists on the remote and I'm not registered → attach worktree + register me. |
+| create (init, creator path) | **when asked** | Creating a branch on the shared remote is opt-in per repo — the plugin may be enabled globally, so it must not set up every repo the user opens. The briefing mentions it once if the repo has a remote but no state branch. |
+| claim | automatic | Agent claims before its first edit for a new task (skill description + standing rule). PreToolUse backstop: editing a file not covered by any of my claims adds context "no claim covers this file — claim it before continuing". Nudged at most once per area per session to avoid noise. |
+| release | automatic | (a) PostToolUse hook after a successful merge (`gh pr merge`, or the GitHub MCP merge tool): release my claims on the merged PR's branch and log "merged in #N" to my history. (c) SessionStart: release my claims whose PRs merged outside Claude (cached `gh` check). Claims marked `keep: true` (`--keep`) survive a merge, for multi-PR tasks. If someone else's agent merges my PR, my claim shows as "PR merged" in everyone's briefing until my next SessionStart releases it (one-writer rule). |
+| status | automatic | Briefing at every SessionStart; agent re-checks before starting new work. |
+| decide | automatic | Agent records an ADR when a design choice is settled in conversation (user agreed, or an alternative was rejected for a stated reason). No confirmation prompt; announced in one line. Mistakes are fixed by a new decision with `supersedes:`. |
+| note | automatic | Agent posts a team note (to everyone) when it learns something teammates need: broken env, flaky test, half-done refactor, changed command. |
+| handoff | **when asked** | User says to pass work to someone ("Bob is taking over checkout"). Requires a named recipient; transfers the claim to them with notes. |
+| sync | automatic | Briefing flags decisions not yet reflected in `CLAUDE.md`; agent updates `CLAUDE.md` as its own commit (`multiplayer: sync CLAUDE.md`). |
+| snapshot | automatic | SessionEnd hook writes "where I left off" (branch, last commits, uncommitted files) into my own active claims — no model needed. Commit locally; push best-effort, else on next SessionStart. |
+
+### 2.8 Git autopilot — painless git for inexperienced users
+People talk about tasks, never branches. Agents run one fixed, merge-only workflow; anything that could lose work stops and hands over to the agent (which explains and asks).
+
+1. **Start:** claiming a task while on the default branch creates a task branch `<user>/<slug>` from the latest remote default branch (uncommitted changes come along). One task → one branch → one PR. Claiming on an existing feature branch keeps that branch. `--no-branch` / config `autoBranch: false` opt out.
+2. **Work:** the agent commits at natural checkpoints (standing rule), keeping the tree clean so updates are safe.
+3. **Stay current — merge, never rebase:**
+   - **SessionStart** (before the agent has read anything): fetch the default branch; fast-forward local default when that loses nothing; if on a task branch with no uncommitted tracked changes, merge the default branch in. On conflict, abort (nothing changes) and tell the agent.
+   - **Mid-session:** the background refresh fetches the default branch; when new commits there touch files in my claims, PreToolUse tells the agent (once per new tip) to commit and run the `update` skill at its next checkpoint.
+   - **`update` skill:** fetch + merge; on conflict it leaves the merge in progress, lists the files, and the agent resolves them, asking the user only when both sides changed the same logic.
+4. **Finish:** the agent pushes, opens a PR, and merges with squash when approved. After the merge: the claim releases (§2.7), and if the merged branch is checked out with no uncommitted changes, the plugin switches to the default branch, fast-forwards it, and deletes the local task branch (only if its tip is the PR's head, so nothing unpushed is lost).
+5. **Merging safely:** a PreToolUse guard looks up a PR's checks (`gh pr checks`) when an agent is about to merge (gh or the GitHub MCP tool) and warns unless they all passed (skipped for `--auto`, which GitHub gates itself); the standing rules say merge only on green. `multiplayer protect` (repo admin) turns on GitHub branch protection requiring the checks seen on the default branch and forbidding force-pushes. `multiplayer revert <PR|commit>` reverts on a fresh `<user>/revert-…` branch from the latest default branch, claims the affected files, and leaves conflicts with later work for the agent; the revert skill opens the PR and posts a team note.
+6. **Guard rails:** never force-push, rebase shared branches, or commit directly to the default branch — standing rules now, enforced by deny rules in the Phase 5 settings template. Automatic steps only run when they can't lose work.
+
+Config: `defaultBranch` (auto-detected), `autoBranch` (default true), `autoUpdate` (default true).
+
+### 2.9 Parallel agents — leads, workers, worktrees
+One person often runs several agents at once. The plugin supports three setups:
+
+| Setup | How it works |
+|---|---|
+| **Separate worktrees** (`git worktree`, Orca, …) | Every worktree of a clone shares one team state (the main checkout's `.multiplayer/`, or `<git-dir>/multiplayer/state` for bare repos) and keeps its own branch, so claims and the git autopilot work per worktree. Unmarked worktree sessions are ordinary sessions. |
+| **Lead + workers** (an orchestrator agent owns git) | The **lead** claims the whole task, assigns workers distinct files, commits, merges, and opens the PR. **Workers** only edit: no claim nudges, no automatic git steps, and a warning (never a block) if they run git, PR, claim, decide, or handoff commands. Subagents are workers automatically (their hook input carries `agent_id`); separate sessions become workers via `multiplayer worker [--dir <worktree>] [--task … --paths …]` (which can also claim the task for the person) or `MULTIPLAYER_ROLE=worker`. Workers see worker rules instead of the standing rules; editing outside an assignment warns. |
+| **Unmanaged sessions in one folder** (fallback) | Sessions register in `.local/sessions/` (heartbeat via PreToolUse; gone after SessionEnd or 30 min of silence). While another session is active in the same folder, automatic git steps pause: no session-start merge or branch switch, no post-merge cleanup, and claims don't start a branch. The pause lifts by itself when the others end; nothing is pushed automatically — the agents still commit and push as part of normal work. |
+
+**Starting agents:** `multiplayer worktree "<task>" --paths … [--worker]` creates a worktree + branch beside the main checkout. Independent agents branch from the latest default branch and get their own claim; workers fork from the lead's commit, are marked as workers, and extend the lead's claim instead of making their own. `multiplayer collect <folder|branch>` commits a worker's changes, merges its branch into the lead's, and removes the worktree (conflicts are left for the lead; a second run finishes). The `delegate` skill teaches a lead to do all of this on its own whenever it starts parallel sessions, so orchestrators set up workers without anyone remembering a command. Terminal multiplexers like herdr don't create worktrees, so they rely on these commands (or `MULTIPLAYER_ROLE=worker` for a worker sharing the lead's folder).
+
+Across all setups, PreToolUse tracks which session or subagent edited which files (one record per actor; a finished subagent is forgotten at SubagentStop) and warns when another of *my* agents — a sibling subagent, another session in the folder, or a session in another worktree — recently edited the same file.
+
+**Handoff suggestions:** a standing rule tells agents to *offer* (never make) a handoff when the user says they'll be away, are stopping, are stuck, or someone else should continue; my claims quiet for `staleClaimDays − 1` days are flagged "finish it, release it, or offer a handoff"; a first-session welcome lists plain-language requests including "hand this to <name>".
+
+---
+
+## 3. Plugin layout (verified against docs — see `docs/research-notes.md`)
+
+The repo root is the plugin, and also a single-plugin marketplace.
+
+```
+./
+├── .claude-plugin/
+│   ├── plugin.json            # manifest (only `name` required)
+│   └── marketplace.json       # `plugins: [{ name: "multiplayer", source: "./" }]`
+├── skills/                    # invoked as /multiplayer:<skill>
+│   ├── init/SKILL.md
+│   ├── claim/SKILL.md
+│   ├── release/SKILL.md
+│   ├── status/SKILL.md
+│   ├── decide/SKILL.md
+│   ├── handoff/SKILL.md
+│   ├── note/SKILL.md
+│   ├── update/SKILL.md
+│   └── sync/SKILL.md
+├── hooks/hooks.json           # SessionStart, PreToolUse (Edit|Write|MultiEdit), PostToolUse (merge), SessionEnd
+├── scripts/
+│   ├── multiplayer.mjs        # CLI entry
+│   └── lib/                   # state, git, gh, identity, render
+├── templates/                 # files scaffolded into the user's project by init
+│   ├── CLAUDE.md.tmpl
+│   ├── settings.json.tmpl
+│   └── PULL_REQUEST_TEMPLATE.md
+├── test/                      # node:test; N-clone simulation harness
+├── docs/
+├── README.md
+└── LICENSE (MIT)
+```
+
+---
+
+## 4. Features (what each piece does)
+
+Every feature runs automatically or when asked (§2.7); the slash command is the manual override.
+
+| Feature | Manual command | Behavior |
+|---|---|---|
+| **init** | `/multiplayer:init` | **Joiner path is automatic; creator path runs when asked.** **Creator** (no `multiplayer-state` on remote): creates the orphan branch + `.multiplayer/` worktree, writes `multiplayer.config.json`, registers self in `members/`. **Joiner** (branch exists): attaches the worktree and registers self in `members/`. Both: exclude `.multiplayer/` via `.git/info/exclude`, scaffold `CLAUDE.md` / `.claude/settings.json` / PR template **only if absent** (otherwise offer a diff). Any number of members can join, in any order, concurrently. |
+| **claim** | `/multiplayer:claim <task> [#issue]` | Creates `claims/<user>--<slug>.md` with: task, branch, expected paths/globs (the agent derives them from the task; kept narrow), optional GitHub issue number, started time, notes. Warns, listing **each** teammate whose claim overlaps the paths. Free-text paths are the source of truth; once the claim's branch has an open PR, the PR's actual changed files are also checked (catches paths the claim missed). `--takeover <user>/<slug>` supersedes a stale claim (§2.6). |
+| **release** | `/multiplayer:release [slug]` | Deletes my claim; one-line outcome appended to `history/<user>.md`. Automatic on PR merge (PostToolUse hook) and at SessionStart for PRs merged elsewhere, unless the claim has `keep: true`. |
+| **status** | `/multiplayer:status [user]` | Renders, grouped by teammate: active claims, decisions in last 14 days, unread handoffs to me, recent notes, stale claims (> N days). Optional filter to one teammate. |
+| **decide** | `/multiplayer:decide <summary>` | The agent writes an ADR (context, decision, consequences, alternatives) from the current conversation when a choice is settled, then pushes it and tells the user in one line. Visible to every member. `supersedes:` replaces an earlier decision. |
+| **handoff** | `/multiplayer:handoff <user>` | **When asked** to pass work on. The agent summarizes: what changed (from `git diff`/log on branch), why, open questions, next steps, gotchas, and transfers the claim (the recipient gets a new claim that supersedes mine; I release mine). Recipient required. Marked read *per recipient, locally* when their SessionStart surfaces it. |
+| **note** | `/multiplayer:note <text>` | Team update to everyone (broken env, flaky test, half-done work). Posted automatically by the agent when it learns something teammates need. Lower priority than handoffs in the briefing; ages out after `noteDays` (default 3). |
+| **sync** | `/multiplayer:sync` | Reads recent decisions (from all members) + merged PRs; updates `CLAUDE.md` as its own commit when the briefing flags unsynced decisions. Flags stale claims. |
+| **SessionStart hook** | — | Pull state; auto-join; release claims whose PRs merged; inject a compact briefing (prioritized and capped per §2.6) plus the standing rules from §2.7. |
+| **Overlap guard hook** | — (PreToolUse on Edit/Write/MultiEdit) | If the target file matches any teammate's claimed path glob, **or** a file changed in any teammate's open PR (via `gh pr list` + `gh pr view --json files`, cached), add context for Claude: "⚠️ carol (claim: X) and dan (PR #N) are working on this file. Confirm with user before proceeding." Also nudges the agent to claim when no claim of mine covers the file. |
+| **Merge hook** | — | PostToolUse on `Bash` (`gh pr merge`) and the GitHub MCP merge tool: on success, release my claims on that PR's branch. |
+| **SessionEnd hook** | — | Writes a "where I left off" snapshot into my active claims. |
+
+---
+
+## 5. Phases
+
+### Phase 0 — Research & scaffold
+1. Read current Claude Code docs for: plugins (manifest, marketplace), skills (SKILL.md frontmatter), hooks (event names, input JSON, how to inject context on SessionStart, how PreToolUse returns a warning without blocking), plugin env vars (e.g., plugin root path).
+2. Review for ideas (check licenses before copying anything): [jsnkle/Claude-Code-Team-Collaboration-Guide](https://github.com/jsnkle/Claude-Code-Team-Collaboration-Guide), [peterkrueck/Claude-Code-Development-Kit](https://github.com/peterkrueck/Claude-Code-Development-Kit), [Paradigm-Study/claude-share](https://github.com/Paradigm-Study/claude-share).
+3. Write `docs/research-notes.md` summarizing verified format details and any places this plan is wrong.
+4. Scaffold the repo layout from §3 with a no-op hook to confirm the plugin loads locally (`claude plugin validate .`).
+
+⏸ **Checkpoint:** report doc findings + any plan corrections before writing real logic.
+
+### Phase 1 — State store + identity + init
+- `lib/git.mjs`: create orphan branch, add worktree, pull/commit/push with jittered retries on non-fast-forward.
+- `lib/identity.mjs` (incl. identity-collision check), `lib/state.mjs` (read/write frontmatter files, members directory).
+- `multiplayer init` (creator + joiner paths), `/multiplayer:init` skill wrapping it. Auto-join from the SessionStart hook; creator path only when asked.
+- Tests: an **N-clone harness** — a bare repo plus `n` temp clones (default 3: alice, bob, carol). Cover: one creator + several joiners; two joiners registering concurrently.
+
+### Phase 2 — Claims + SessionStart briefing
+- `multiplayer claim|release|status`, matching model-invocable skills with "use proactively" descriptions.
+- Unclaimed-edit nudge in PreToolUse; PostToolUse merge hook + SessionStart merged-PR check for auto-release (`keep: true` opt-out); SessionEnd snapshot.
+- SessionStart hook with the briefing renderer (grouping, prioritization, cap) + "last seen" tracking stored locally (`.multiplayer/.local/`, gitignored on the state branch too).
+- Tests: alice and bob claim → carol's SessionStart output shows both, grouped; with 10 simulated members the briefing stays within the line cap; a simulated `gh pr merge` releases the matching claim but not a `keep: true` one.
+
+⏸ **Checkpoint:** demo the multi-clone flow end to end.
+
+### Phase 2.5 — Git autopilot (§2.8)
+- `lib/workflow.mjs`: default-branch detection, safe fast-forward, merge-or-abort, conflict listing, post-merge cleanup.
+- `claim` creates the task branch; SessionStart updates the branch; background refresh fetches the default branch; PreToolUse "main changed your files" notice; `update` CLI + skill; merge hook and SessionStart cleanup after merge; git standing rules.
+- Tests: task branch from fresh main (clean and with uncommitted changes); auto-merge at session start; conflict leaves the branch untouched; dirty tree skips the update; local default fast-forwards only when nothing is lost; mid-session notice fires once per new tip; `update` leaves conflicts for the agent; post-merge cleanup deletes the branch only when its tip was merged.
+
+### Phase 2.6 — Parallel agents and handoff suggestions (§2.9)
+- Shared state across worktrees (incl. bare repos); lead/worker roles (subagents automatic, `worker` command and `MULTIPLAYER_ROLE` for sessions); session registry and shared-folder pause; per-actor edit tracking and sibling warnings; SubagentStop hook; handoff suggestions.
+- Tests: worktrees (normal and bare) share state and keep branches; subagent workers get no nudges and are warned on git/claims; sibling subagents and cross-worktree edits warn; worker sessions get worker rules, assignment warnings, no autopilot, refused claims; shared-folder pause and its automatic lift; idle-claim suggestions and the welcome.
+
+### Phase 3 — Decisions, notes, handoffs
+- `multiplayer decide|note|handoff`; skills where the agent drafts the content and calls the CLI. `decide` and `note` are proactive; `handoff` runs when asked and transfers the claim.
+- Per-recipient local read tracking; notes age out after `noteDays`.
+- Briefing shows new decisions, unread handoffs (highest priority), recent notes.
+- Tests: handoff to bob appears for bob only and moves the claim; a note appears for everyone except its author; marking read in one clone doesn't affect another.
+
+### Phase 4 — Overlap guard
+- Path-glob matching against all teammates' claims (no network).
+- Optional `gh` PR-file overlap across all teammates' open PRs, with cache + timeout (refreshed by SessionStart / background, read-only in PreToolUse).
+- Tests for glob matching, multiple simultaneous overlaps, cache, `gh`-missing fallback, and fail-open on errors.
+- Done: open PRs are cached with their changed files (`gh pr list --json …,files`, refreshed at session start and by the background refresh; PreToolUse ignores data older than an hour). A PR's owner is the member with a claim on its branch, else the `<user>/…` branch prefix, else the member whose GitHub login (recorded at join via `gh api user`) matches the author, else `@login`. Warnings merge a person's claims and PRs into one entry (max 3 items each); the briefing lists teammates' PRs touching my claimed files; claiming warns about overlapping PRs. Measured: PreToolUse ≈ 75 ms with 100 open PRs × 50 files and 30 claims.
+
+### Phase 5 — Sync + templates
+- `/multiplayer:sync` skill (updates `CLAUDE.md` as its own commit), triggered by the briefing's unsynced-decisions flag.
+- Done: `multiplayer sync` rewrites a marked "Team decisions" block in CLAUDE.md from current decisions (title, the Decision section's first line, author, date, file) and commits only CLAUDE.md on the task branch (starting `<user>/sync-claude-md` from the default branch). The briefing flags missing or replaced decisions. `sync --resolve`, and `update` automatically, settle merge conflicts confined to that block. `multiplayer scaffold` creates or extends CLAUDE.md, union-merges `.claude/settings.json`, and adds a PR template if none exists, committing on `<user>/multiplayer-setup`; the init skill runs it after creating a team and has the agent fill CLAUDE.md's placeholders from the repo. A plugin `bin/multiplayer` wrapper puts the CLI on the Bash PATH so skills and permission rules use `multiplayer …`.
+- `templates/` content: a solid team `CLAUDE.md` skeleton (stack, commands, conventions, "ask before touching" list with owners, link to `.multiplayer/decisions`, and the §2.7 standing rules), shared `settings.json` (secrets guard + destructive-command guard + formatter hooks as *project* hooks, and permission rules pre-approving `Skill(multiplayer:*)` and the plugin's CLI so headless/agent sessions can claim without prompts — found in the Phase 2 live test), PR template (what/why/how to test/claims released).
+
+### Phase 6 — Packaging + dogfood
+- `marketplace.json`, README with 2-minute quickstart for the creator and for each joining member.
+- Done: version 0.1.0; strict validation passes; a real install from the marketplace (isolated config) loads and runs hooks and the `bin/` command. README leads with a quickstart, "what you can say", troubleshooting, and configuration. `multiplayer doctor` (plus a skill: "Is multiplayer working?") checks every dependency and prints fixes; Found in a cloud session: Claude Code cloud sessions block GitHub GraphQL, which `gh pr …` uses, so every PR feature (cache of merged/open PRs with files, PR lookup, checks, protect, revert-by-number) now goes through the REST API via `gh api`, and works there too. `docs/dogfood.md` holds the trial checklist, known issues, and the friction log.
+- Install into a real team project (ideally 3+ people); collect friction notes in `docs/dogfood.md`.
+
+---
+
+## 6. Definition of done (v1)
+- [ ] Every member can install with one command. The first member sets up the repo by asking; everyone else joins automatically on their first session, in any order, concurrently.
+- [ ] Claims, releases, decisions, notes, status, and sync happen without anyone typing a slash command; handoffs happen when asked.
+- [ ] Teammates' claims, new decisions, notes, and handoffs addressed to me appear automatically at session start, within the line cap regardless of team size.
+- [ ] Editing a file any teammate has claimed produces a visible warning naming every overlapping teammate, never a block.
+- [ ] No state file is ever edited by two people → zero merge conflicts on `multiplayer-state` in tests with ≥ 3 concurrent writers.
+- [ ] All hooks fail open and meet the time budgets; covered by tests.
+- [ ] `node --test` passes with no network access (gh mocked).
+
+---
+
+## 7. Open questions (ask Mark before deciding)
+_None open._
+
+## 8. Decisions log
+- **Name:** `multiplayer`.
+- **Claim granularity:** free-text paths/globs plus an optional GitHub issue number; open-PR changed files are also used for overlap.
+- **Stale claims:** default 3 days, configurable; teammates use `--takeover` (supersede, never delete someone else's claim).
+- **Visibility:** private until dogfooded.
+- **Release on merge:** automatic — PostToolUse hook on agent merges, plus a SessionStart check for PRs merged elsewhere. No GitHub Action. `keep: true` opts a claim out.
+- **Handoffs vs notes:** handoff = pass work to a named person and transfer the claim; note = team update to everyone. Handoff always needs a recipient.
+- **Automation:** every action runs automatically or when asked (handoff, creating the state branch); slash commands are only a manual override (§2.7).
+- **Git workflow:** agents run a merge-only, branch-per-task workflow (§2.8) so inexperienced users never manage git themselves.
+- **Parallel agents:** worktrees share team state; an orchestrator lead owns git and claims while workers only edit (subagents detected automatically, Orca-style sessions marked with `multiplayer worker`); unmanaged sessions in one folder pause automatic git steps until the others end (§2.9).
+- **Deploys:** the preferred setup keeps merging separate from releasing: either manual (approved) production deploys with `main` going to staging, or production deploys from a release branch or tags. If `main` must deploy straight to production, merges need human approval (README "Deploying safely").
+- **Devices and cloud sessions:** cloud sessions (`CLAUDE_CODE_REMOTE=true`) commit as a shared "Claude <noreply@anthropic.com>" identity, so multiplayer pauses there until `MULTIPLAYER_USER` is set, and shared identities never take part in email collision checks. Cloud sessions claim on their assigned branch instead of starting one. Claims record `device` and `clone`, so the same person's sessions on different machines warn each other about their own claims.
+

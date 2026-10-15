@@ -1,0 +1,12 @@
+{
+  "name": "multiplayer-vibe-coding",
+  "description": "Plugins for teams vibe coding together on one repo.",
+  "owner": { "name": "mjrichar09" },
+  "plugins": [
+    {
+      "name": "multiplayer",
+      "source": "./",
+      "description": "Async coordination for teams of any size running Claude Code on one repo."
+    }
+  ]
+}
