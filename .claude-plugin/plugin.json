@@ -3,8 +3,11 @@
   "displayName": "Multiplayer",
   "version": "0.1.0",
   "description": "Async coordination for teams of any size running Claude Code on one repo: claims, decisions, handoffs, and overlap warnings.",
-  "author": { "name": "mjrichar09" },
+  "author": { "name": "mjrichar09", "url": "https://github.com/mjrichar09" },
+  "homepage": "https://github.com/mjrichar09/MultiplayerVibeCoding#readme",
   "repository": "https://github.com/mjrichar09/MultiplayerVibeCoding",
   "license": "MIT",
-  "keywords": ["collaboration", "team", "coordination", "multiplayer"]
+  "keywords": ["collaboration", "team", "coordination", "multiplayer", "git", "handoff", "pull-requests", "parallel-agents"],
+  "documentationUrl": "https://github.com/mjrichar09/MultiplayerVibeCoding/blob/main/docs/GUIDE.md",
+  "supportUrl": "https://github.com/mjrichar09/MultiplayerVibeCoding/issues"
 }

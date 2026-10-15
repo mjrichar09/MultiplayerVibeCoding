@@ -4,6 +4,8 @@
 
 > **New here? Read the [guide](docs/GUIDE.md)**: how multiplayer works and how to get started, in plain language.
 >
+> Sharing it outside the team, running your own copy, or cutting a release: see [`docs/PUBLISHING.md`](docs/PUBLISHING.md).
+>
 > Status: version 0.1.0, ready for a first trial with a real team (see [`docs/dogfood.md`](docs/dogfood.md)). Design and history: [`PLAN.md`](PLAN.md).
 
 ## Quickstart
@@ -136,4 +138,4 @@ claude plugin validate .       # check the manifest
 claude --plugin-dir .          # load the local copy in a session
 ```
 
-See [`PLAN.md`](PLAN.md) for the design and [`docs/research-notes.md`](docs/research-notes.md) for verified Claude Code format details.
+Releasing, forking, and listing the plugin: [`docs/PUBLISHING.md`](docs/PUBLISHING.md). See [`PLAN.md`](PLAN.md) for the design and [`docs/research-notes.md`](docs/research-notes.md) for verified Claude Code format details.
