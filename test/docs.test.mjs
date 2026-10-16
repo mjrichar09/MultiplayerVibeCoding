@@ -152,3 +152,10 @@ test('update settles a conflict that is only in the Team decisions section', asy
   assert.doesNotMatch(md, /<<<<<<<|=======|>>>>>>>/);
   assert.equal(existsSync(path.join(alice.cwd, '.git', 'MERGE_HEAD')), false);
 });
+
+test('the marketplace entry lists every skill, so the install screen can show them', async () => {
+  const root = new URL('../', import.meta.url);
+  const entry = JSON.parse(readFileSync(new URL('.claude-plugin/marketplace.json', root), 'utf8')).plugins[0];
+  const skills = readdirSync(new URL('skills/', root)).sort().map((n) => `./skills/${n}`);
+  assert.deepEqual(entry.skills, skills);
+});
