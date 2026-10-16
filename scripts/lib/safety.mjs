@@ -14,7 +14,7 @@ import { githubRepo, prChecks, prView } from './gh.mjs';
 /** Run gh and keep its output and errors (for messages the user can act on). */
 function ghRun(args, { cwd, env = process.env, timeout = 15_000 } = {}) {
   return new Promise((resolve) => {
-    execFile(env.MULTIPLAYER_GH || 'gh', args, { cwd, env, timeout, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(env.MULTIPLAYER_GH || 'gh', args, { cwd, env, timeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
       let json = null;
       try {
         json = JSON.parse(stdout);

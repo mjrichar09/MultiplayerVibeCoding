@@ -159,3 +159,15 @@ test('the marketplace entry lists every skill, so the install screen can show th
   const skills = readdirSync(new URL('skills/', root)).sort().map((n) => `./skills/${n}`);
   assert.deepEqual(entry.skills, skills);
 });
+
+test('every child process the plugin starts hides its window (Windows flashes a console otherwise)', async () => {
+  const dir = new URL('../scripts/lib/', import.meta.url);
+  for (const f of readdirSync(dir).filter((n) => n.endsWith('.mjs'))) {
+    const src = readFileSync(new URL(f, dir), 'utf8');
+    // Each call, with the few lines before it where its options may be built.
+    for (const m of src.matchAll(/\b(?:execFile|spawn)\(/g)) {
+      const around = src.slice(Math.max(0, m.index - 300), m.index + 200);
+      assert.match(around, /windowsHide: true/, `${f}: ${src.slice(m.index, m.index + 80)}`);
+    }
+  }
+});
