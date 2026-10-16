@@ -23,7 +23,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function gitOnce(args, { cwd, timeout, env }) {
   return new Promise((resolve, reject) => {
-    const opts = { cwd, timeout, maxBuffer: 16 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) };
+    // windowsHide: on Windows a hook has no console of its own, so every git call
+    // would otherwise flash a console window.
+    const opts = { cwd, timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, ...(env ? { env: { ...process.env, ...env } } : {}) };
     execFile('git', args, opts, (err, stdout, stderr) => {
       if (err) reject(new GitError(args, stderr || err.message, err.code));
       else resolve(stdout.trimEnd());

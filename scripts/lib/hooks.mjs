@@ -298,7 +298,7 @@ async function maybeRefreshInBackground(root, env) {
   if (Date.now() - last.at < REFRESH_INTERVAL_MS) return;
   await writeLocal(root, 'last-refresh.json', { at: Date.now() });
   const cli = fileURLToPath(new URL('../multiplayer.mjs', import.meta.url));
-  const child = spawn(process.execPath, [cli, 'refresh'], { cwd: root, env, detached: true, stdio: 'ignore' });
+  const child = spawn(process.execPath, [cli, 'refresh'], { cwd: root, env, detached: true, stdio: 'ignore', windowsHide: true });
   child.on('error', () => {});
   child.unref();
 }

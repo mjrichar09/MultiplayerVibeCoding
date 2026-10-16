@@ -11,7 +11,7 @@ import { parseGithubRepo } from './gh.mjs';
 
 function run(cmd, args, { cwd, env = process.env, timeout = 8_000 } = {}) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { cwd, env, timeout }, (err, stdout, stderr) =>
+    execFile(cmd, args, { cwd, env, timeout, windowsHide: true }, (err, stdout, stderr) =>
       resolve({ ok: !err, missing: err?.code === 'ENOENT', stdout: String(stdout).trim(), stderr: String(stderr).trim() }),
     );
   });

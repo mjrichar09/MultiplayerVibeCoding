@@ -6,7 +6,7 @@
 >
 > Sharing it outside the team, running your own copy, or cutting a release: see [`docs/PUBLISHING.md`](docs/PUBLISHING.md).
 >
-> Status: version 0.3.0, in a first trial with a real team (see [`docs/dogfood.md`](docs/dogfood.md)). Design and history: [`PLAN.md`](PLAN.md).
+> Status: version 0.3.1, in a first trial with a real team (see [`docs/dogfood.md`](docs/dogfood.md)). Design and history: [`PLAN.md`](PLAN.md).
 
 ## Quickstart
 

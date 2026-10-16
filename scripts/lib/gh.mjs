@@ -16,7 +16,7 @@ const OPEN_PRS_WITH_FILES = 30; // most recently updated open PRs whose files we
 
 export function gh(args, { cwd, env = process.env, timeout = 4_000 } = {}) {
   return new Promise((resolve) => {
-    execFile(env.MULTIPLAYER_GH || 'gh', args, { cwd, env, timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+    execFile(env.MULTIPLAYER_GH || 'gh', args, { cwd, env, timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
       if (err) return resolve(null);
       try {
         resolve(JSON.parse(stdout));
