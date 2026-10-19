@@ -229,7 +229,7 @@ export async function pull(dir, remote, { timeout } = {}) {
  * Stage `paths`, commit, and push, retrying `pull --rebase` + push with jittered
  * exponential backoff when another member pushed first.
  */
-export async function commitAndPush(dir, remote, paths, message, { attempts = 6, baseDelayMs = 150, timeout } = {}) {
+export async function commitAndPush(dir, remote, paths, message, { attempts = 10, baseDelayMs = 150, maxDelayMs = 2_000, timeout } = {}) {
   if (paths.length) await git(['add', '--all', '--', ...paths], { cwd: dir });
   const staged = await git(['diff', '--cached', '--name-only'], { cwd: dir });
   if (staged) await git(['commit', '--quiet', '-m', message], { cwd: dir });
@@ -243,7 +243,8 @@ export async function commitAndPush(dir, remote, paths, message, { attempts = 6,
     } catch (err) {
       lastErr = err;
       if (!/rejected|non-fast-forward|fetch first|failed to update ref|cannot lock ref/i.test(err.stderr ?? '')) throw err;
-      await sleep(baseDelayMs * 2 ** i * (0.5 + Math.random()));
+      // Capped so a busy team (many pushing at once) retries quickly rather than waiting minutes.
+      await sleep(Math.min(maxDelayMs, baseDelayMs * 2 ** i) * (0.5 + Math.random()));
       await pull(dir, remote, { timeout });
     }
   }

@@ -341,3 +341,13 @@ test('board commits never block teammates pushing at the same time', async (t) =
   const readme = await team.members.alice.git('show', 'origin/multiplayer-state:README.md');
   for (const n of names) assert.match(readme, new RegExp(`Task ${n}`));
 });
+
+test('a claim made on the default branch follows the task branch it moves to', async (t) => {
+  const team = await setup(['alice']);
+  t.after(team.cleanup);
+  const { alice } = team.members;
+  await ok(alice.run(['claim', '--task', 'Docs', '--paths', 'docs/**', '--no-branch']));
+  await alice.git('switch', '-q', '-c', 'alice/docs');
+  const r = await ok(alice.run(['claim', '--slug', 'docs', '--paths', 'docs/**']));
+  assert.match(r.stdout, /on alice\/docs\./);
+});
