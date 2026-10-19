@@ -77,13 +77,21 @@ export const register: Register = on => {
     const working = b.members.filter(m => m.claims.length)
     const idle = b.members.filter(m => !m.claims.length).map(m => (m.user === b.me ? 'you' : m.user))
     const forMe = (b.handoffs ?? []).filter(handoff => b.me && handoff.to.includes(b.me))
+    const myVotes = (b.votes ?? []).filter(v => v.state === 'open' && b.me && v.waitingOn.includes(b.me))
+    const urgent = (b.votes ?? []).filter(v => v.urgent)
     const extras = [
+      myVotes.length && `${myVotes.length} vote${myVotes.length > 1 ? 's' : ''} waiting on you`,
       forMe.length && `${forMe.length} handoff${forMe.length > 1 ? 's' : ''} for you`,
       b.notes?.length && `${b.notes.length} team note${b.notes.length > 1 ? 's' : ''}`,
     ].filter(Boolean)
 
     return (
       <Box flexDirection="column" width={width}>
+        {urgent.map(v => (
+          <Text key={`urgent-${v.id}`} color="yellow" wrap="truncate-end">
+            🔔 Decision needed: {v.title} ({v.by}){v.state === 'open' ? ` · waiting on ${v.waitingOn.map(u => (u === b.me ? 'you' : u)).join(', ')}` : ' · counted'}
+          </Text>
+        ))}
         {working.flatMap(m =>
           m.claims.map((c, i) => (
             <Box key={`${m.user}-${c.slug}`}>
@@ -140,6 +148,18 @@ export const register: Register = on => {
             ))}
           </Box>
         ))}
+        {(b.votes?.length ?? 0) > 0 && (
+          <Box flexDirection="column" marginBottom={1}>
+            <Text bold>Votes</Text>
+            {b.votes!.map(v => (
+              <Text key={`vote-${v.id}`} wrap="truncate-end">
+                {'  '}
+                {v.urgent ? '🔔 ' : ''}
+                {v.title} <Text dimColor>({v.state === 'open' ? `waiting on ${v.waitingOn.join(', ')}` : 'counted'})</Text>
+              </Text>
+            ))}
+          </Box>
+        )}
         {(b.handoffs?.length ?? 0) > 0 && (
           <Box flexDirection="column" marginBottom={1}>
             <Text bold>Handoffs waiting</Text>

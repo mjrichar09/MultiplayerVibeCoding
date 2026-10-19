@@ -9,7 +9,8 @@ import { parseArgs } from 'node:util';
 import { boardData } from './lib/board.mjs'; // also registers the team board writer
 import { renderBriefing } from './lib/briefing.mjs';
 import { activeClaims, claim, listClaims, release } from './lib/claims.mjs';
-import { decide, handoff, listEntries, note } from './lib/entries.mjs';
+import { decide, handoff, listEntries, note, pitch } from './lib/entries.mjs';
+import { castBallot, closeVote, countVote, findVote, listVotes, openVote, sealed, voteSummary } from './lib/votes.mjs';
 import { git, isAttached, pull, stateDir } from './lib/git.mjs';
 import { prs, readPrCache } from './lib/gh.mjs';
 import { afterMerge, postToolUse, preToolUse, sessionEnd, sessionStart, subagentStop } from './lib/hooks.mjs';
@@ -57,6 +58,10 @@ const COMMANDS = {
   revert: runRevert,
   merge: runMerge,
   board: runBoard,
+  pitch: runPitch,
+  pitches: runPitches,
+  vote: runVote,
+  escalate: (argv) => runVote(['open', '--urgent', ...argv]),
   // Background refresh started by the PreToolUse hook: pull state, refresh the
   // PR cache, and fetch the default branch (refs only; never touches files).
   refresh: async () => {
@@ -190,6 +195,83 @@ async function runNote(argv) {
   console.log(`Posted a note to the team: ${n.title}`);
 }
 
+async function runPitch(argv) {
+  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { body: { type: 'string' } } });
+  const team = await openTeam(process.cwd());
+  const text = positionals.length ? positionals.join(' ') : await bodyFrom(values);
+  const p = await pitch(team, { text });
+  console.log(`Pitched "${p.title}" to the team (${p.id}).`);
+}
+
+async function runPitches(argv) {
+  const { values } = parseArgs({ args: argv, options: { json: { type: 'boolean' } } });
+  const team = await openTeam(process.cwd());
+  const all = await listEntries(team.dir, 'pitch');
+  if (values.json) return console.log(JSON.stringify(all));
+  if (!all.length) return console.log('No pitches yet.');
+  for (const p of all) console.log(`- ${p.title} — ${p.user}, ${p.created.slice(0, 10)} [${p.id}]`);
+}
+
+// Votes (PLAN §2.11). Specs and ballots are JSON on stdin; see skills/vote.
+async function runVote(argv) {
+  const [sub, ...rest] = argv;
+  const { values, positionals } = parseArgs({
+    args: rest,
+    allowPositionals: true,
+    options: {
+      json: { type: 'boolean' },
+      urgent: { type: 'boolean' },
+      force: { type: 'boolean' },
+      decision: { type: 'string', multiple: true },
+      outcome: { type: 'string' },
+    },
+  });
+  const team = await openTeam(process.cwd());
+  const me = team.me.user;
+  const json = async () => {
+    const text = await readStdin();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error('Expected JSON on stdin (see the vote skill for the format).');
+    }
+  };
+  const show = (v) => console.log(JSON.stringify(sealed(v, me), null, 2));
+  switch (sub) {
+    case 'list':
+    case undefined: {
+      const votes = (await listVotes(team.dir)).filter((v) => v.state !== 'closed');
+      if (values.json) return console.log(JSON.stringify(votes.map((v) => ({ id: v.id, ...voteSummary(v, me), state: v.state }))));
+      if (!votes.length) return console.log('No open votes.');
+      for (const v of votes) console.log(`- ${voteSummary(v, me).text} [${v.id}]`);
+      return;
+    }
+    case 'show':
+      return show(await findVote(team.dir, positionals[0]));
+    case 'open': {
+      const v = await openVote(team, { ...(await json()), ...(values.urgent ? { urgent: true, kind: 'decide' } : {}) });
+      console.log(`Opened ${v.urgent ? 'an urgent decision' : `a ${v.kind} vote`}: "${v.title}" [${v.id}]. Voters: ${v.voters.join(', ')}.`);
+      return;
+    }
+    case 'cast': {
+      let v = await castBallot(team, positionals[0], await json());
+      console.log(`Saved your ballot on "${v.title}".`);
+      if (v.waitingOn.length) return console.log(`Still waiting on ${v.waitingOn.join(', ')}.`);
+      v = await countVote(team, v.id);
+      console.log('That was the last ballot, so the vote is counted:');
+      return show(v);
+    }
+    case 'count':
+      return show(await countVote(team, positionals[0], { force: values.force }));
+    case 'close': {
+      const v = await closeVote(team, positionals[0], { decisions: values.decision ?? [], outcome: values.outcome ?? '' });
+      return console.log(`Closed "${v.title}".`);
+    }
+    default:
+      throw new Error('Usage: multiplayer vote list|show <id>|open|cast <id>|count <id> [--force]|close <id> [--decision <id>] [--outcome text]');
+  }
+}
+
 async function runHandoff(argv) {
   const { values } = parseArgs({
     args: argv,
@@ -208,15 +290,18 @@ async function runHandoff(argv) {
 async function runStatus(argv) {
   const { positionals } = parseArgs({ args: argv, allowPositionals: true });
   const team = await openTeam(process.cwd());
-  const [decisions, notes, handoffs] = await Promise.all(
-    ['decision', 'note', 'handoff'].map((k) => listEntries(team.dir, k)),
-  );
+  const [decisions, notes, handoffs, pitches, votes] = await Promise.all([
+    ...['decision', 'note', 'handoff', 'pitch'].map((k) => listEntries(team.dir, k)),
+    listVotes(team.dir),
+  ]);
   const lines = renderBriefing({
     me: team.me.user,
     members: team.members,
     decisions,
     notes,
     handoffs,
+    pitches,
+    votes,
     claims: await listClaims(team.dir),
     config: team.config,
     prCache: await prs(team.root),

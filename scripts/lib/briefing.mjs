@@ -3,6 +3,7 @@
 // Priority: handoffs to me → claims overlapping mine → new decisions →
 // recent notes → other teammates' claims.
 
+import { voteSummary } from './votes.mjs';
 import { activeClaims, isStale, mergedPr, prOverlaps } from './claims.mjs';
 import { current } from './entries.mjs';
 import { patternsOverlap } from './glob.mjs';
@@ -20,6 +21,7 @@ export const STANDING_RULES = [
   '- Git: commit at checkpoints; work only on your task branch; never force-push, rebase, or commit to the default branch. If told the default branch changed your files, commit and use multiplayer:update.',
   '- When done: push and open a PR. Once its checks pass, merge it with `multiplayer merge` (it refuses failing or running checks and cleans up the claim and branch); if checks fail, fix them or tell the user. To undo a merged PR, use multiplayer:revert.',
   '- Record settled design choices with multiplayer:decide (the user agreed, or an alternative was rejected for a reason). Post things teammates need (broken setup, flaky test, changed command) with multiplayer:note. A setup step every newcomer will need (a tool to install, an env var, access to request) also goes in CLAUDE.md\'s "Getting set up" section on your branch, because notes fade after a few days.',
+  '- Ideas for the team: multiplayer:pitch. A choice that needs everyone: multiplayer:vote (pick between pitches, or check decision points; agreement is recorded, differences get talked out). If it blocks work or affects teammates now, suggest multiplayer:escalate. When a vote waits on the user, offer to take it.',
   '- If the user says they will be away, are stopping for a while, are stuck, or someone else should continue, offer a handoff to a fitting teammate (e.g. one with related claims). Use multiplayer:handoff only if they agree.',
   '- Delegating? Claim the whole task first and give each worker distinct files; workers leave git and claims to you. Subagents need nothing more; for parallel sessions (Orca, herdr, terminals) use multiplayer:delegate.',
 ];
@@ -109,6 +111,12 @@ export function renderBriefing(ctx) {
     if (body.length > n) head.push(`    … full handoff: .multiplayer/${h.file}`);
   }
 
+  // Decisions escalated to the whole team come right after handoffs: they block work.
+  const votes = (ctx.votes ?? []).filter((v) => v.state !== 'closed').map((v) => ({ v, ...voteSummary(v, ctx.me) }));
+  for (const s of votes.filter((s) => s.urgent && s.mine)) {
+    head.push(`🔔 ${s.text}. Ask the user to answer it now (multiplayer:vote, id ${s.v.id}).`);
+  }
+
   const mine = active.filter((c) => c.user === ctx.me);
   const others = active.filter((c) => c.user !== ctx.me && (!ctx.filterUser || c.user === ctx.filterUser));
   const myPaths = mine.flatMap((c) => c.paths);
@@ -157,6 +165,22 @@ export function renderBriefing(ctx) {
     );
     sections.push(full ? `Decisions (last ${DECISION_DAYS} days):` : 'New team decisions (details in .multiplayer/decisions/):', ...lines);
     if (hidden) sections.push(more(hidden, 'decisions'));
+    budget -= 1 + lines.length + (hidden ? 1 : 0);
+  }
+
+  const otherVotes = votes.filter((s) => !(s.urgent && s.mine)).sort((a, b) => Number(b.mine) - Number(a.mine) || Number(b.urgent) - Number(a.urgent));
+  if (otherVotes.length && budget > 2) {
+    const { lines, hidden } = fill(otherVotes.map((s) => [`- ${s.text} [${s.v.id}]`]), budget - 2);
+    sections.push('Votes (multiplayer:vote; ballots stay sealed until everyone has voted):', ...lines);
+    if (hidden) sections.push(`+${hidden} more votes — run \`multiplayer vote list\`.`);
+    budget -= 1 + lines.length + (hidden ? 1 : 0);
+  }
+
+  const pitches = (ctx.pitches ?? []).filter((p) => p.user !== ctx.me && isNew(p.created)).reverse();
+  if (pitches.length && budget > 2) {
+    const { lines, hidden } = fill(pitches.map((p) => [`- "${p.title}" — ${p.user}, ${ago(p.created, at)} [${p.file}]`]), budget - 2);
+    sections.push('New pitches:', ...lines);
+    if (hidden) sections.push(`+${hidden} more pitches — run \`multiplayer pitches\`.`);
     budget -= 1 + lines.length + (hidden ? 1 : 0);
   }
 

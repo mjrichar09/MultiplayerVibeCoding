@@ -101,6 +101,8 @@ alice (1):
 | **Decisions** | Short records of settled choices ("store money as integer cents"). Also listed in `CLAUDE.md`. | New sessions and teammates follow the same rules. |
 | **Team notes** | Quick heads-ups that fade after a few days ("staging is down"). | Saves everyone from rediscovering the same problem. |
 | **Handoffs** | Passing your work, branch, and notes to a named teammate. | Work continues smoothly when someone is away. |
+| **Pitches and votes** | Pitch ideas, then vote in your own sessions: pick between options, or check decision points. The vote counts itself when the last ballot is in. | Decisions get made without everyone online at once, and nobody is swayed by seeing the others' answers first. |
+| **Escalations** | An urgent one-question vote at the top of everyone's briefing and panel. | Blocking decisions get everyone's attention fast. |
 | **Guard rails** | Merges only when checks pass. Force-pushes, rebases, pushing straight to `main`, and reading secret `.env` files are blocked. Merged changes can be undone safely. | Mistakes stay small and fixable. |
 
 ---
@@ -117,6 +119,10 @@ You don't need to learn any commands. Ask in plain language:
 | "Tell the team the API key rotated." | A team note in everyone's next summary |
 | "Bring my branch up to date." | Merges the latest code in and resolves conflicts with you |
 | "Undo PR #42." | A pull request that safely reverses #42, plus a note to the team |
+| "Pitch an idea: a racing mode." | A pitch every teammate sees, ready to vote on |
+| "Let's vote on the pitches." | Everyone rates the options in their own session; the count gives a shortlist |
+| "Start a decision check on the engine and art style." | Everyone answers; agreed answers are recorded, differences get talked out |
+| "Escalate this: do we ship Friday?" | An urgent question at the top of everyone's session until it's decided |
 | "Split this across parallel agents." | Several agents work on separate parts at once; the lead agent combines their work |
 | "Is multiplayer working?" | A health check with fixes |
 

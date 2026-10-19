@@ -140,6 +140,17 @@ Two always-available views of who is working on what, both drawn from `multiplay
 - **Team panel (in Claude Code).** A mod in the plugin (`hooks/panel.tsx`, listed under `modules` in `hooks/hooks.json`) draws a band above the prompt: one row per open claim (who, task, first files, last activity, stale or merged flags), then idle members, handoffs for me, and the note count. It reads the local state at session start, after each turn, and when `/team-board` opens the fuller pane; a timer pulls teammates' changes (`board --sync`) every minute. Terminal and desktop Code tab only (mods don't draw in the VS Code chat panel, `-p`, or cloud sessions); needs Claude Code 2.1.287+.
 - **Team board (on GitHub).** `README.md` on the `multiplayer-state` branch, which GitHub shows as the branch's front page. It's the one state file with many writers, so it never goes through a rebase: whoever pushes regenerates it as its own commit just before the push, and unpushed board commits are dropped before every pull. Dates, not "2h ago", so it stays true while nobody pushes.
 
+
+### 2.11 Pitches, votes, and escalations — deciding together (from dogfooding)
+
+The trial team built a pitch vote and a decision survey as repo skills; both proved useful, so they're generalized here.
+
+- **Pitches** are entries on the state branch (`pitches/`), shown in briefings as new and listed by `multiplayer pitches`.
+- **Votes** live in `votes/<id>/` on the state branch: `vote.json` (frozen by whoever opens it), `ballot--<user>.json` (one per voter), `results--<user>.json`, `closed--<user>.json`. One writer per file, so casting is instant and never conflicts. Two kinds: **pick** (options with pitch cards; gut feeling 0–3 plus rank 3/2/1; a veto drops an option unless someone else ranked it first, which makes it a question for the team; the top two are the shortlist, with ties at the edge flagged) and **decide** (questions with options; each comes out agreed, differ, or review when someone wrote their own answer). The last ballot triggers the count; the count is deterministic, so two simultaneous counters write the same content. Outcomes are recorded with `decide` and the vote is closed with the decision ids.
+- **Sealed ballots:** the plugin never shows another voter's answers before the count (`vote show` strips them). The files are readable on the branch, so this is a courtesy, as in the trial.
+- **Escalate** opens an urgent one-question decide vote: it goes in the briefing's top block for everyone who hasn't answered, and at the top of the panel and the GitHub board.
+- Repos keep their specifics (extra questions, card details, documents to update) as house rules in `CLAUDE.md`.
+
 ---
 
 ## 3. Plugin layout (verified against docs — see `docs/research-notes.md`)

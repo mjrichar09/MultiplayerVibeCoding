@@ -19,6 +19,7 @@ export type Board = {
   members?: BoardMember[];
   notes?: { user: string; title: string; created: string }[];
   handoffs?: { from: string; to: string[]; title: string; created: string }[];
+  votes?: { id: string; title: string; kind: 'pick' | 'decide'; urgent: boolean; by: string; state: 'open' | 'counted'; waitingOn: string[] }[];
 };
 
 declare module 'claude-code' {

@@ -11,7 +11,7 @@
       "name": "multiplayer",
       "displayName": "Multiplayer",
       "source": "./",
-      "description": "Async coordination for teams of any size running Claude Code on one repo: claims, decisions, handoffs, overlap warnings, painless git, and an always-visible team panel.",
+      "description": "Async coordination for teams of any size running Claude Code on one repo: claims, decisions, handoffs, pitches and votes, overlap warnings, painless git, and an always-visible team panel.",
       "category": "collaboration",
       "tags": [
         "team",
@@ -32,14 +32,17 @@
         "./skills/decide",
         "./skills/delegate",
         "./skills/doctor",
+        "./skills/escalate",
         "./skills/handoff",
         "./skills/init",
         "./skills/note",
+        "./skills/pitch",
         "./skills/release",
         "./skills/revert",
         "./skills/status",
         "./skills/sync",
-        "./skills/update"
+        "./skills/update",
+        "./skills/vote"
       ]
     }
   ]

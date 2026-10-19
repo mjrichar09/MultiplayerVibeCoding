@@ -10,6 +10,7 @@ import { renderBriefing } from './briefing.mjs';
 import { activeClaims, claim, covers, isStale, listClaims, mergedPr, prOverlaps, release, snapshot, supersededBy } from './claims.mjs';
 import { listMembers } from './state.mjs';
 import { listEntries } from './entries.mjs';
+import { listVotes } from './votes.mjs';
 import { syncStatus } from './docs.mjs';
 import {
   endSession,
@@ -190,7 +191,12 @@ export async function sessionStart(input, { env = process.env } = {}) {
     }
   }
 
-  const [decisions, notes] = await Promise.all([listEntries(team.dir, 'decision'), listEntries(team.dir, 'note')]);
+  const [decisions, notes, pitches, votes] = await Promise.all([
+    listEntries(team.dir, 'decision'),
+    listEntries(team.dir, 'note'),
+    listEntries(team.dir, 'pitch'),
+    listVotes(team.dir),
+  ]);
   if (!role) {
     const docs = await syncStatus(root, team.dir);
     const behind = docs.missing.length + docs.outdated.length;
@@ -210,6 +216,8 @@ export async function sessionStart(input, { env = process.env } = {}) {
     decisions,
     notes,
     handoffs,
+    pitches,
+    votes,
     readHandoffs: read.handoffs,
     config: team.config,
     prCache,
@@ -323,7 +331,7 @@ const areaOf = (rel) => path.posix.dirname(rel);
 
 // Commands a worker should leave to its lead (PLAN §2.9).
 const LEAD_ONLY_COMMAND =
-  /\bgit\s+(commit|merge|rebase|push|pull|switch|checkout|reset|branch|stash|cherry-pick|revert)\b|\bgh\s+pr\s+(create|merge)\b|(?:multiplayer\.mjs|\bmultiplayer)\s+(claim|release|update|handoff|init|decide|worktree|collect|sync|scaffold|merge|revert)\b/;
+  /\bgit\s+(commit|merge|rebase|push|pull|switch|checkout|reset|branch|stash|cherry-pick|revert)\b|\bgh\s+pr\s+(create|merge)\b|(?:multiplayer\.mjs|\bmultiplayer)\s+(claim|release|update|handoff|init|decide|worktree|collect|sync|scaffold|merge|revert|pitch|vote|escalate)\b/;
 const LEAD_ONLY_SKILL = /^multiplayer:(claim|release|update|handoff|init|decide)$/;
 
 /** Warn a worker that's about to do its lead's job (git, claims, PRs). Never blocks. */
