@@ -8,6 +8,8 @@ import {
   attachStateWorktree,
   commitAndPush,
   createStateWorktree,
+  ensureStateRefspec,
+  trackStateBranch,
   defaultRemote,
   excludeStateDir,
   git,
@@ -50,6 +52,7 @@ export async function init({ cwd, create = false, env = process.env, timeout } =
 
   let status = 'member';
   if (isAttached(root)) {
+    await trackStateBranch(root, remote);
     await pull(stateDir(root), remote, { timeout });
     await pushPending(stateDir(root), remote, { timeout });
   } else if (await remoteHasStateBranch(root, remote, { timeout })) {
@@ -82,6 +85,7 @@ async function createTeam(root, remote, me, { timeout }) {
   await writeFile(path.join(dir, '.gitignore'), '.local/\n');
   await git(['add', '--all'], { cwd: dir });
   await git(['commit', '--quiet', '-m', `multiplayer: create team (${me.user})`], { cwd: dir });
+  await ensureStateRefspec(root, remote);
   try {
     await git(['push', '--quiet', '-u', remote, `HEAD:refs/heads/${STATE_BRANCH}`], { cwd: dir, timeout });
     return true;
