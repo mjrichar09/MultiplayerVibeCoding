@@ -6,7 +6,7 @@
 >
 > Sharing it outside the team, running your own copy, or cutting a release: see [`docs/PUBLISHING.md`](docs/PUBLISHING.md).
 >
-> Status: version 0.3.1, in a first trial with a real team (see [`docs/dogfood.md`](docs/dogfood.md)). Design and history: [`PLAN.md`](PLAN.md).
+> Status: version 0.4.0, in a first trial with a real team (see [`docs/dogfood.md`](docs/dogfood.md)). Design and history: [`PLAN.md`](PLAN.md).
 
 ## Quickstart
 
@@ -45,6 +45,10 @@ You never need commands; agents claim, branch, update, record, and clean up on t
 | "Tell the team that …" | A team note shown at everyone's next session start |
 | "Bring my branch up to date" | Merges the latest `main` in and resolves conflicts with you |
 | "Undo PR #42" | A revert PR, plus a note to the team |
+| "Pitch an idea: …" | A pitch every teammate sees, ready to vote on |
+| "Let's vote on the pitches" | A pick vote: everyone rates each option in their own session, and the count gives a shortlist |
+| "Start a decision check on …" | Everyone answers the decision points; agreed answers become team decisions, differences get talked out |
+| "Escalate this: we need to decide …" | An urgent one-question vote at the top of everyone's briefing and panel until it's settled |
 | "Split this across parallel agents" | Worker agents in their own worktrees, merged back by the lead |
 
 ## How it works
@@ -64,6 +68,7 @@ You never need commands; agents claim, branch, update, record, and clean up on t
 - **Stale claims** (no activity for 3 days, configurable) can be taken over; the owner is told.
 - **CLAUDE.md keeps up.** Its "Team decisions" section lists every current decision; when it falls behind, the agent updates it as its own commit. Conflicts in that section are settled automatically.
 - **Decisions and notes spread on their own.** When a design choice is settled, the agent records a short decision record; when it learns something the team needs (a broken environment, a flaky test), it posts a note. Teammates see both at their next session start.
+- **Pitch, vote, decide.** Anyone can pitch an idea; the team then votes in their own sessions, with no meeting needed to collect opinions. A *pick vote* rates each option (gut feeling, top three, optional veto) and counts a shortlist. A *decision check* asks a few decision points: agreed answers are recorded as team decisions, and differences come back with what each choice gives and costs, to talk out. *Escalate* is an urgent one-question decision check that sits at the top of everyone's briefing and panel until it's settled. Ballots stay sealed until the last one is in, then the vote counts itself. Repos can add house rules in `CLAUDE.md`, such as extra questions or documents to update.
 - **Handoffs when you ask.** "Bob is taking over checkout" makes the agent commit, push the branch, and write a handoff. Bob's next session accepts the claim, switches to the branch if he's free, and starts with the notes.
 - **Merging is guarded.** Agents merge with `multiplayer merge`, which squash-merges only after a PR's checks pass, then releases the claim and cleans up the branch. They're warned if checks are failing, still running, or missing. `multiplayer protect` turns on GitHub branch protection, so failing PRs can't merge at all. To undo a merged PR, ask for it ("revert #42"): the agent opens a revert PR and tells the team. Later work is kept.
 - **Git runs itself.** Each task gets its own branch from the latest `main`. Branches are kept current by merging `main` in (never rebasing), automatically at session start when that's safe. Conflicts are resolved by the agent, which asks you only when both sides changed the same logic. After a PR merges, you're switched back to an updated `main` and the old branch is deleted. Nothing automatic ever runs if it could lose work.

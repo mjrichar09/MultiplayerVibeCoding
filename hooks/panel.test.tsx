@@ -103,3 +103,20 @@ test('/team-board opens a pane with everyone, handoffs, and notes', async ($, on
     await ui.unmount()
   }
 })
+
+test('an escalated decision shows at the top of the band', async ($, on) => {
+  mock.clock(on, { now: Date.parse('2026-10-15T12:00:00.000Z') })
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  on('session.root', async () => ({ value: '/work/app' }))
+  on('ui.render', async ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine</Text>
+  })
+  const votes = [{ id: 'v1', title: 'Ship the demo Friday?', kind: 'decide', urgent: true, by: 'carol', state: 'open', waitingOn: ['bob', 'carol'] }]
+  on('process.run', async () => ({ value: { exitCode: 0, stdout: JSON.stringify({ ...BOARD, votes }), stderr: '' } }))
+  await $.command.run({ command: 'team-board', args: '' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /🔔 Decision needed: Ship the demo Friday\? \(carol\) · waiting on you, carol/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /1 vote waiting on you/ })).toBeDefined()
+  await ui.unmount()
+})

@@ -6,6 +6,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { activeClaims, isStale, listClaims, mergedPr } from './claims.mjs';
 import { listEntries } from './entries.mjs';
+import { listVotes } from './votes.mjs';
 import { setBoardWriter } from './git.mjs';
 import { listMembers, readConfig } from './state.mjs';
 import { DAY_MS } from './util.mjs';
@@ -18,12 +19,13 @@ export const BOARD_FILE = 'README.md';
  * whose PR already merged.
  */
 export async function boardData(dir, { at = new Date(), prCache = null } = {}) {
-  const [config, members, claims, notes, handoffs] = await Promise.all([
+  const [config, members, claims, notes, handoffs, votes] = await Promise.all([
     readConfig(dir),
     listMembers(dir),
     listClaims(dir),
     listEntries(dir, 'note'),
     listEntries(dir, 'handoff'),
+    listVotes(dir),
   ]);
   const active = activeClaims(claims);
   const accepted = new Set(active.map((c) => c.handoff).filter(Boolean));
@@ -54,6 +56,10 @@ export async function boardData(dir, { at = new Date(), prCache = null } = {}) {
       .filter((n) => at - new Date(n.created) < noteDays * DAY_MS)
       .reverse()
       .map((n) => ({ user: n.user, title: n.title ?? n.body.split('\n')[0], created: n.created })),
+    // Unsettled votes, never their ballots.
+    votes: votes
+      .filter((v) => v.state !== 'closed')
+      .map((v) => ({ id: v.id, title: v.title, kind: v.kind, urgent: v.urgent, by: v.by, state: v.state, waitingOn: v.waitingOn })),
     handoffs: handoffs
       .filter((h) => !accepted.has(h.id) && at - new Date(h.created) < 14 * DAY_MS)
       .reverse()
@@ -88,6 +94,14 @@ export function boardMarkdown(data) {
     }
   } else lines.push('Nobody has claimed any work right now.');
   if (idle.length) lines.push('', `Not working on anything claimed: ${idle.map((m) => m.user).join(', ')}.`);
+  if (data.votes?.length) {
+    lines.push('', '## Open votes', '');
+    for (const v of data.votes) {
+      const what = v.urgent ? '🔔 Decision needed' : v.kind === 'pick' ? 'Pick vote' : 'Decision check';
+      const where = v.state === 'open' ? `waiting on ${v.waitingOn.join(', ')}` : 'counted, outcome to record';
+      lines.push(`- ${what}: ${cell(v.title)} (${v.by}) — ${where}`);
+    }
+  }
   if (data.handoffs.length) {
     lines.push('', '## Handoffs waiting to be picked up', '');
     for (const h of data.handoffs) lines.push(`- ${h.from} → ${h.to.join(', ')}: ${cell(h.title)} (${day(h.created)})`);

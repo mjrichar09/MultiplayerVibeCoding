@@ -164,3 +164,20 @@ test('a brand-new repository with no commits can be set up and joined', async (t
   assert.equal(joined.status, 0, joined.stderr);
   assert.match(joined.stdout, /Members \(2\): alice, bob/);
 });
+
+test('a single-branch shallow clone (as cloud sessions make) joins and stays in sync', async (t) => {
+  const team = await makeTeam(['alice']);
+  t.after(team.cleanup);
+  const { alice } = team.members;
+  await alice.run(['init', '--create']);
+  const bob = await team.addClone('bob', { cloneArgs: ['--depth', '1', '--single-branch', '--no-local'] });
+  const joined = await bob.run(['init']);
+  assert.equal(joined.status, 0, joined.stderr);
+  assert.match(await bob.git('config', '--get-all', 'remote.origin.fetch'), /\+refs\/heads\/multiplayer-state:refs\/remotes\/origin\/multiplayer-state/);
+  assert.equal(await bob.git('config', 'branch.multiplayer-state.merge'), 'refs/heads/multiplayer-state');
+
+  // Bob's claim is pushed, and his clone's view of the remote branch keeps up.
+  assert.equal((await bob.run(['claim', '--task', 'T', '--paths', 'x/**', '--no-branch'])).status, 0);
+  assert.equal(await bob.git('-C', '.multiplayer', 'rev-list', '--count', 'origin/multiplayer-state..HEAD'), '0');
+  assert.match((await alice.run(['status'])).stdout, /bob \(1\)/);
+});

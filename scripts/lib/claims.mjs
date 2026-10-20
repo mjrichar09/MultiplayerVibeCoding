@@ -157,6 +157,12 @@ export async function claim(team, opts) {
       ({ branch } = started);
       branchCreated = started.created;
     }
+  } else {
+    // Claimed on the default branch, then moved to a task branch: follow it, so
+    // the claim releases when that branch's PR merges.
+    const base = await defaultBranch(team.root, team.remote, config);
+    const here = await currentBranch(team.root);
+    if ((!branch || branch === base) && here && here !== base) branch = here;
   }
 
   const next = {

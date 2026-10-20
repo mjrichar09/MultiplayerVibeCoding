@@ -11,7 +11,7 @@ import { now } from './util.mjs';
 import { currentBranchOrNull, defaultBranch, dirtyFiles } from './workflow.mjs';
 import { activeClaims, listClaims } from './claims.mjs';
 
-export const KINDS = { decision: 'decisions', note: 'notes', handoff: 'handoffs' };
+export const KINDS = { decision: 'decisions', note: 'notes', handoff: 'handoffs', pitch: 'pitches' };
 
 const stamp = (d) => d.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15); // 20261014-094312
 
@@ -67,6 +67,14 @@ export async function note(team, { text }) {
   if (!text?.trim()) throw new Error('A note needs text.');
   const headline = text.trim().split('\n')[0].slice(0, 120);
   return addEntry(team, 'note', { title: headline }, text, headline);
+}
+
+/** Pitch an idea to the team. The first line is its name; the rest is the pitch. */
+export async function pitch(team, { text }) {
+  if (!text?.trim()) throw new Error('A pitch needs text: a name on the first line, then the idea.');
+  const [first, ...rest] = text.trim().split('\n');
+  if (!rest.join('').trim()) throw new Error('A pitch needs more than a name: describe the idea below the first line.');
+  return addEntry(team, 'pitch', { title: first.replace(/^#+\s*/, '').slice(0, 120) }, rest.join('\n'), first);
 }
 
 /**

@@ -67,9 +67,9 @@ export async function makeTeam(names = ['alice', 'bob', 'carol'], { seed = true 
   };
 }
 
-async function addClone({ base, remote, env }, name, { email = `${name}@example.com`, dir = name } = {}) {
+async function addClone({ base, remote, env }, name, { email = `${name}@example.com`, dir = name, cloneArgs = [] } = {}) {
   const cwd = path.join(base, dir);
-  await gitIn(base, env)('clone', '--quiet', remote, cwd);
+  await gitIn(base, env)('clone', '--quiet', ...cloneArgs, remote, cwd);
   const g = gitIn(cwd, env);
   await g('config', 'user.name', name[0].toUpperCase() + name.slice(1));
   await g('config', 'user.email', email);

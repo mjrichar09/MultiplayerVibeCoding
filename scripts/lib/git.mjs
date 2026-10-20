@@ -146,14 +146,34 @@ export async function createStateWorktree(root, message = 'multiplayer: start') 
 }
 
 /** Attach the worktree to the existing remote state branch. */
+/**
+ * Make `git fetch` keep <remote>/multiplayer-state current. A single-branch
+ * clone (`git clone --depth 1`, common in cloud sessions) only fetches its
+ * default branch, so the state branch's remote ref would never update.
+ */
+export async function ensureStateRefspec(root, remote) {
+  const want = `+refs/heads/${STATE_BRANCH}:refs/remotes/${remote}/${STATE_BRANCH}`;
+  const have = (await git(['config', '--get-all', `remote.${remote}.fetch`], { cwd: root }).catch(() => '')).split('\n');
+  const covered = have.some((r) => r === want || /^\+?refs\/heads\/\*:refs\/remotes\/[^/]+\/\*$/.test(r));
+  if (!covered) await git(['config', '--add', `remote.${remote}.fetch`, want], { cwd: root });
+}
+
 export async function attachStateWorktree(root, remote, { timeout } = {}) {
   const dir = stateDir(root);
+  await ensureStateRefspec(root, remote);
   await git(['fetch', '--quiet', remote, `+refs/heads/${STATE_BRANCH}:refs/remotes/${remote}/${STATE_BRANCH}`], {
     cwd: root,
     timeout,
   });
   await git(['worktree', 'add', '--quiet', '-B', STATE_BRANCH, dir, `${remote}/${STATE_BRANCH}`], { cwd: root });
-  await git(['branch', '--quiet', `--set-upstream-to=${remote}/${STATE_BRANCH}`, STATE_BRANCH], { cwd: dir });
+  await trackStateBranch(root, remote);
+}
+
+/** Point the local state branch at the remote one (also repairs clones that joined before the refspec fix). */
+export async function trackStateBranch(root, remote) {
+  await ensureStateRefspec(root, remote);
+  await git(['config', `branch.${STATE_BRANCH}.remote`, remote], { cwd: root });
+  await git(['config', `branch.${STATE_BRANCH}.merge`, `refs/heads/${STATE_BRANCH}`], { cwd: root });
 }
 
 /** Throw away a local worktree (used when a concurrent creator won the race). */
@@ -209,7 +229,7 @@ export async function pull(dir, remote, { timeout } = {}) {
  * Stage `paths`, commit, and push, retrying `pull --rebase` + push with jittered
  * exponential backoff when another member pushed first.
  */
-export async function commitAndPush(dir, remote, paths, message, { attempts = 6, baseDelayMs = 150, timeout } = {}) {
+export async function commitAndPush(dir, remote, paths, message, { attempts = 10, baseDelayMs = 150, maxDelayMs = 2_000, timeout } = {}) {
   if (paths.length) await git(['add', '--all', '--', ...paths], { cwd: dir });
   const staged = await git(['diff', '--cached', '--name-only'], { cwd: dir });
   if (staged) await git(['commit', '--quiet', '-m', message], { cwd: dir });
@@ -223,7 +243,8 @@ export async function commitAndPush(dir, remote, paths, message, { attempts = 6,
     } catch (err) {
       lastErr = err;
       if (!/rejected|non-fast-forward|fetch first|failed to update ref|cannot lock ref/i.test(err.stderr ?? '')) throw err;
-      await sleep(baseDelayMs * 2 ** i * (0.5 + Math.random()));
+      // Capped so a busy team (many pushing at once) retries quickly rather than waiting minutes.
+      await sleep(Math.min(maxDelayMs, baseDelayMs * 2 ** i) * (0.5 + Math.random()));
       await pull(dir, remote, { timeout });
     }
   }
